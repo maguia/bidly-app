@@ -1,0 +1,10 @@
+ # Node
+node_modules/
+.env
+
+# Expo
+frontend/.expo/
+frontend/dist/
+
+# Windows
+Thumbs.db
