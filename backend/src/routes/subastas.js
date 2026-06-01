@@ -7,6 +7,7 @@ const CATEGORIAS = ['comun', 'especial', 'plata', 'oro', 'platino'];
 // ─── GET /subastas ──────────────────────────────────────
 // Devuelve la lista de subastas con info de acceso del usuario
 router.get('/', authMiddleware, async (req, res) => {
+  const { fecha } = req.query;
   try {
     const pool = await getPool();
 
@@ -19,7 +20,15 @@ router.get('/', authMiddleware, async (req, res) => {
     const nivelUser = CATEGORIAS.indexOf(userCategoria);
 
     // Traer todas las subastas con su subastador
-    const result = await pool.request().query(`
+    const request = pool.request();
+    let whereClause = '';
+
+    if (fecha) {
+      request.input('fecha', sql.Date, fecha);
+      whereClause = 'WHERE CAST(s.fecha AS DATE) = @fecha';
+    }
+
+    const result = await request.query(`
       SELECT s.identificador, s.fecha, s.hora, s.estado,
              s.ubicacion, s.categoria,
              p.nombre as martillero,
@@ -33,6 +42,7 @@ router.get('/', authMiddleware, async (req, res) => {
       FROM subastas s
       LEFT JOIN subastadores sub ON sub.identificador = s.subastador
       LEFT JOIN personas p ON p.identificador = sub.identificador
+      ${whereClause}
       ORDER BY s.fecha, s.hora
     `);
 
@@ -322,6 +332,70 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       pujaId,
       estado: 'esperando_confirmacion',
       expiraEn: expira
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// ─── GET /subastas/:id/historial ────────────────────────
+// Cualquier usuario puede ver la evolución de una subasta
+router.get('/:id/historial', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+
+    // Verificar que la subasta existe
+    const subRes = await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .query('SELECT * FROM subastas WHERE identificador = @id');
+
+    if (!subRes.recordset.length) {
+      return res.status(404).json({ codigo: 404, mensaje: 'Subasta no encontrada' });
+    }
+
+    // Traer todos los movimientos de todas las pujas de esa subasta
+    const result = await pool.request()
+      .input('subId', sql.Int, req.params.id)
+      .query(`
+        SELECT 
+          ic.identificador as itemId,
+          pr.descripcionCatalogo as nombreItem,
+          ic.precioBase,
+          p.importe as monto,
+          p.ganador,
+          p.identificador as pujaId
+        FROM pujos p
+        INNER JOIN asistentes a ON a.identificador = p.asistente
+        INNER JOIN itemsCatalogo ic ON ic.identificador = p.item
+        INNER JOIN catalogos c ON c.identificador = ic.catalogo
+        INNER JOIN productos pr ON pr.identificador = ic.producto
+        WHERE c.subasta = @subId
+        ORDER BY ic.identificador, p.identificador ASC
+      `);
+
+    // Agrupar por ítem
+    const itemsMap = {};
+    result.recordset.forEach(row => {
+      if (!itemsMap[row.itemId]) {
+        itemsMap[row.itemId] = {
+          itemId: row.itemId,
+          nombreItem: row.nombreItem,
+          precioBase: row.precioBase,
+          pujas: []
+        };
+      }
+      itemsMap[row.itemId].pujas.push({
+        pujaId: row.pujaId,
+        monto: row.monto,
+        ganador: row.ganador === 'si'
+      });
+    });
+
+    res.json({
+      subastaId: req.params.id,
+      items: Object.values(itemsMap)
     });
 
   } catch (err) {
