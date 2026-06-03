@@ -2,14 +2,21 @@ import React, { useEffect, useRef } from 'react';
 import {
   View, Text, Image, StyleSheet, Animated, Dimensions
 } from 'react-native';
+import { useFonts, Unbounded_700Bold } from '@expo-google-fonts/unbounded';
 
 const { width } = Dimensions.get('window');
 
 export default function SplashScreen({ navigation }) {
   const barraAncho = useRef(new Animated.Value(0)).current;
   const opacidad = useRef(new Animated.Value(0)).current;
+  
+  const [fontsLoaded] = useFonts({
+    Unbounded_700Bold,
+  });
 
   useEffect(() => {
+    if (!fontsLoaded) return;
+
     // Fade in del contenido
     Animated.timing(opacidad, {
       toValue: 1,
@@ -30,13 +37,16 @@ export default function SplashScreen({ navigation }) {
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [fontsLoaded]);
+
+  // Mientras carga la fuente no muestra nada
+  if (!fontsLoaded) return null;
 
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.contenido, { opacity: opacidad }]}>
 
-        {/* Título */}
+        {/* Título con tipografía Unbounded */}
         <Text style={styles.titulo}>Bidly</Text>
 
         {/* Logo */}
@@ -67,15 +77,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   titulo: {
-    fontSize: 48,
-    fontWeight: 'bold',
+    fontSize: 65,
+    fontFamily: 'Unbounded_700Bold',
     color: '#1A2E4A',
     marginBottom: 30,
-    fontStyle: 'italic',
   },
   logo: {
-    width: 220,
-    height: 220,
+    width: 350,
+    height: 350,
     marginBottom: 60,
   },
   barraContainer: {

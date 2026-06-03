@@ -12,24 +12,19 @@ export default function LoginScreen({ navigation }) {
   const [cargando, setCargando] = useState(false);
 
   const handleLogin = async () => {
-    // Validaciones
     if (!email || !password) {
       Alert.alert('Error', 'Por favor completá todos los campos');
       return;
     }
-
     if (!email.includes('@')) {
       Alert.alert('Error', 'Ingresá un email válido');
       return;
     }
-
     setCargando(true);
     try {
       await login(email, password);
-      // Si el login es exitoso, navega al Home
       navigation.replace('Home');
     } catch (error) {
-      // Manejo de errores según código HTTP
       const codigo = error.response?.status;
       if (codigo === 401) {
         Alert.alert('Error', 'Email o contraseña incorrectos');
@@ -50,33 +45,39 @@ export default function LoginScreen({ navigation }) {
     >
       <View style={styles.inner}>
 
-        {/* Logo / Título */}
-        <Text style={styles.titulo}>Bidly</Text>
-        <Text style={styles.subtitulo}>Iniciá sesión en tu cuenta</Text>
+        {/* Título */}
+        <Text style={styles.titulo}>Iniciar sesión</Text>
+        <Text style={styles.subtitulo}>Ingresá a tu cuenta</Text>
 
-        {/* Campos */}
+        {/* Campo email */}
         <Text style={styles.label}>Correo electrónico</Text>
         <TextInput
           style={styles.input}
           placeholder="usuario@email.com"
-          placeholderTextColor="#999"
+          placeholderTextColor="#aaa"
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
           autoCapitalize="none"
         />
 
+        {/* Campo contraseña */}
         <Text style={styles.label}>Contraseña</Text>
         <TextInput
           style={styles.input}
           placeholder="••••••••"
-          placeholderTextColor="#999"
+          placeholderTextColor="#aaa"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
         />
 
-        {/* Botón de ingreso */}
+        {/* Olvidaste tu contraseña */}
+        <TouchableOpacity style={styles.olvidaste} onPress={() => navigation.navigate('RecuperarPassword')}>
+          <Text style={styles.olvidasteTexto}>¿Olvidaste tu contraseña?</Text>
+        </TouchableOpacity>
+
+        {/* Botón ingresar */}
         <TouchableOpacity
           style={[styles.boton, cargando && styles.botonDeshabilitado]}
           onPress={handleLogin}
@@ -87,6 +88,17 @@ export default function LoginScreen({ navigation }) {
             : <Text style={styles.botonTexto}>INGRESAR</Text>
           }
         </TouchableOpacity>
+
+        {/* Separador */}
+        <View style={styles.separador} />
+
+        {/* Registrarse */}
+        <View style={styles.registroRow}>
+          <Text style={styles.registroTexto}>¿No tenés cuenta? </Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Registro')}>
+            <Text style={styles.registroLink}>Registrate</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Continuar como invitado */}
         <TouchableOpacity onPress={() => navigation.navigate('Home')}>
@@ -109,17 +121,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 30,
   },
   titulo: {
-    fontSize: 42,
+    fontSize: 32,
     fontWeight: 'bold',
-    color: '#1A2E4A',
+    color: '#C9973A',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   subtitulo: {
     fontSize: 16,
     color: '#1A2E4A',
     textAlign: 'center',
-    marginBottom: 40,
+    marginBottom: 36,
   },
   label: {
     fontSize: 14,
@@ -128,20 +140,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   input: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1A2E4A',
     borderRadius: 8,
     padding: 14,
     fontSize: 16,
-    color: '#1A2E4A',
+    color: '#fff',
+    marginBottom: 16,
+  },
+  olvidaste: {
+    alignSelf: 'flex-end',
     marginBottom: 20,
+    marginTop: -8,
+  },
+  olvidasteTexto: {
+    color: '#E8593C',
+    fontSize: 13,
   },
   boton: {
     backgroundColor: '#E8593C',
     borderRadius: 8,
     padding: 16,
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   botonDeshabilitado: {
     opacity: 0.6,
@@ -151,10 +171,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  registroRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  registroTexto: {
+    color: '#1A2E4A',
+    fontSize: 14,
+  },
+  registroLink: {
+    color: '#E8593C',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   invitado: {
     color: '#1A2E4A',
     textAlign: 'center',
     fontSize: 14,
-    textDecorationLine: 'underline',
+    fontWeight: 'bold',
+  },
+    separador: {
+    height: 1,
+    backgroundColor: '#aaa',
+    marginVertical: 16,
   },
 });

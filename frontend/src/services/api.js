@@ -3,7 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // IP de tu computadora donde corre el backend
 // 10.0.2.2 es la IP especial para conectar el emulador Android a localhost
-const BASE_URL = 'http://10.0.2.2:3000';
+
+const BASE_URL = 'http://localhost:3000';
+//const BASE_URL = 'http://10.0.2.2:3000';
 
 const api = axios.create({ baseURL: BASE_URL });
 
@@ -18,6 +20,9 @@ api.interceptors.request.use(async (config) => {
 export const authService = {
   login: (email, password) => 
     api.post('/auth/login', { email, password }),
+
+  registro: (datos) =>
+    api.post('/auth/registro/solicitud', datos),
 };
 
 // ─── Subastas ───────────────────────────────────────────
