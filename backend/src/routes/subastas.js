@@ -1,23 +1,32 @@
 const router = require('express').Router();
 const { getPool, sql } = require('../database');
+const { evaluarCategoria } = require('../categorias');
 const authMiddleware = require('../middleware/auth');
 
 const CATEGORIAS = ['comun', 'especial', 'plata', 'oro', 'platino'];
 
 // ─── GET /subastas ──────────────────────────────────────
 // Devuelve la lista de subastas con info de acceso del usuario
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', async (req, res) => {
   const { fecha } = req.query;
   try {
     const pool = await getPool();
 
-    // Obtener categoría del usuario logueado
-    const userRes = await pool.request()
-      .input('id', sql.Int, req.user.id)
-      .query('SELECT categoria FROM clientes WHERE identificador = @id');
-
-    const userCategoria = userRes.recordset[0]?.categoria || 'comun';
-    const nivelUser = CATEGORIAS.indexOf(userCategoria);
+    let nivelUser = 0; // invitado = nivel comun
+    
+    // Si hay token verificamos la categoría del usuario
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'bidly_secret');
+        const userRes = await pool.request()
+          .input('id', sql.Int, decoded.id)
+          .query('SELECT categoria FROM clientes WHERE identificador = @id');
+        const userCategoria = userRes.recordset[0]?.categoria || 'comun';
+        nivelUser = CATEGORIAS.indexOf(userCategoria);
+      } catch {}
+    }
 
     // Traer todas las subastas con su subastador
     const request = pool.request();
@@ -328,6 +337,9 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
     const pujaId = `PJ-${pujaInsert.recordset[0].identificador}`;
     const expira = new Date(Date.now() + 60000).toISOString();
 
+    // Evaluar si corresponde subir de categoría
+    await evaluarCategoria(req.user.id);
+    
     res.json({
       pujaId,
       estado: 'esperando_confirmacion',

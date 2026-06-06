@@ -100,6 +100,10 @@ export default function LoginScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity onPress={() => navigation.navigate('CompletarRegistro')}>
+            <Text style={styles.completarRegistro}>¿Recibiste tu código de aprobación?</Text>
+        </TouchableOpacity>
+
         {/* Continuar como invitado */}
         <TouchableOpacity onPress={() => navigation.navigate('Home')}>
           <Text style={styles.invitado}>Continuar como invitado</Text>
@@ -195,5 +199,12 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#aaa',
     marginVertical: 16,
+  },
+  completarRegistro: {
+    color: '#1A2E4A',
+    textAlign: 'center',
+    fontSize: 13,
+    marginTop: 8,
+    textDecorationLine: 'underline',
   },
 });

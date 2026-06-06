@@ -13,6 +13,8 @@ import DetalleItemScreen from './src/screens/DetalleItemScreen';
 import RecuperarPasswordScreen from './src/screens/RecuperarPasswordScreen';
 import RegistroScreen from './src/screens/RegistroScreen';
 import SolicitudEnviadaScreen from './src/screens/SolicitudEnviadaScreen';
+import CompletarRegistroScreen from './src/screens/CompletarRegistroScreen';
+import MedioPagoScreen from './src/screens/MedioPagoScreen';
 
 const Stack = createStackNavigator();
 
@@ -61,9 +63,35 @@ export default function App() {
               headerTintColor: '#C9973A',
             }}
           />
+          <Stack.Screen
+            name="CompletarRegistro"
+            component={CompletarRegistroScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Completar registro',
+              headerStyle: { backgroundColor: '#1A2E4A' },
+              headerTintColor: '#C9973A',
+              headerRight: () => (
+                <View style={{ marginRight: 16 }}>
+                  <Text style={{ color: '#fff', fontSize: 13 }}>Paso 2 de 3</Text>
+                </View>
+              ),
+            }}
+          />
+          <Stack.Screen 
+            name="MedioPago" 
+            component={MedioPagoScreen} 
+            options={{
+              headerShown: true,
+              headerTitle: 'Agregar medio de pago',
+              headerStyle: { backgroundColor: '#1A2E4A' },
+              headerTintColor: '#C9973A',
+            }}
+          />
           <Stack.Screen name="Home" component={HomeScreen} />
           <Stack.Screen name="Catalogo" component={CatalogoScreen} />
           <Stack.Screen name="DetalleItem" component={DetalleItemScreen} />
+          
         </Stack.Navigator>
       </NavigationContainer>
     </AuthProvider>

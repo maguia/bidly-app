@@ -8,7 +8,7 @@ import { authService } from '../services/api';
 const PAISES = [
   'Argentina', 'Brasil', 'Chile', 'Uruguay', 'Paraguay',
   'Bolivia', 'Perú', 'Colombia', 'Venezuela', 'México',
-  'España', 'Estados Unidos', 'Otro'
+  'España', 'Estados Unidos',
 ];
 
 export default function RegistroScreen({ navigation }) {
@@ -50,16 +50,19 @@ export default function RegistroScreen({ navigation }) {
 
     setCargando(true);
     try {
-      console.log('Enviando registro...', { nombre, apellido, email, paisOrigen, domicilio, declaracion });
-      const res = await authService.registro({ nombre, apellido, email, paisOrigen, domicilio, declaracion });
-      console.log('Respuesta:', res.data);
+      await authService.registro({ nombre, apellido, email, paisOrigen, domicilio, declaracion });
       navigation.replace('SolicitudEnviada', { email });
     } catch (error) {
-      console.log('ERROR COMPLETO:', error.message);
-      console.log('ERROR RESPONSE:', error.response?.data);
       const codigo = error.response?.status;
       if (codigo === 409) {
-        Alert.alert('Error', 'Ya existe una cuenta con ese email');
+        Alert.alert(
+          'Cuenta existente',
+          'Ya existe una cuenta con ese email. ¿Querés iniciar sesión?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Iniciar sesión', onPress: () => navigation.replace('Login') }
+          ]
+        );
       } else if (codigo === 400) {
         Alert.alert('Error', 'Faltan datos obligatorios');
       } else {

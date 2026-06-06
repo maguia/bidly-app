@@ -23,6 +23,20 @@ export const authService = {
 
   registro: (datos) =>
     api.post('/auth/registro/solicitud', datos),
+
+  verificarCodigo: (token) => //codigo de primer registro
+    api.post('/auth/registro/verificar-codigo', { token }),
+
+  completarRegistro: (token, password, passwordConfirm) =>
+    api.post('/auth/registro/completar', { token, password, passwordConfirm }),
+  recuperarPassword: (email) =>
+    api.post('/auth/password/recuperar', { email }),
+
+  verificarCodigo2: (email, codigo, nuevaPassword, confirmarPassword) =>
+    api.post('/auth/password/verificar', { email, codigo, nuevaPassword, confirmarPassword }),
+  
+  verificarCodigoRecuperacion: (email, codigo) => //verificacion de código para recuperar contraseña
+    api.post('/auth/password/verificar-codigo', { email, codigo }),
 };
 
 // ─── Subastas ───────────────────────────────────────────
@@ -50,4 +64,7 @@ export const usuarioService = {
   
   verificacion: () => 
     api.get('/usuarios/me/verificacion'),
+
+  agregarMedioPago: (datos) =>
+    api.post('/usuarios/me/medios-pago', datos),
 };

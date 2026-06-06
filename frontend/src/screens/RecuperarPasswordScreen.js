@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, Alert, ScrollView, ActivityIndicator
 } from 'react-native';
+import { authService } from '../services/api';
 
 export default function RecuperarPasswordScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -35,29 +36,50 @@ export default function RecuperarPasswordScreen({ navigation }) {
       return;
     }
     setCargandoEmail(true);
-    // Simulación — en entrega final conectar al backend
-    setTimeout(() => {
+    try {
+      await authService.recuperarPassword(email);
       setEmailEnviado(true);
+    } catch (error) {
+      const codigo = error.response?.status;
+      if (codigo === 404) {
+        Alert.alert('Error', 'No existe una cuenta con ese email');
+      } else {
+        Alert.alert('Error', 'No se pudo enviar el código. Intentá de nuevo');
+      }
+    } finally {
       setCargandoEmail(false);
-    }, 1000);
+    }
   };
 
   const handleVerificar = async () => {
-    if (!codigo) {
-      Alert.alert('Error', 'Ingresá el código que recibiste');
+    if (!codigo || codigo.length !== 6) {
+      Alert.alert('Error', 'Ingresá el código de 6 dígitos que recibiste');
       return;
     }
     setCargandoCodigo(true);
-    // Simulación — en entrega final conectar al backend
-    setTimeout(() => {
+    try {
+      // Verificar el código contra el backend antes de mostrar el formulario
+      await authService.verificarCodigoRecuperacion(email, codigo);
       setVerificado(true);
+    } catch (error) {
+      const cod = error.response?.status;
+      if (cod === 400) {
+        Alert.alert('Error', 'Código incorrecto');
+      } else if (cod === 410) {
+        Alert.alert('Código expirado', 'Pedí un nuevo código');
+        setEmailEnviado(false);
+        setCodigo('');
+      } else {
+        Alert.alert('Error', 'No se pudo verificar el código');
+      }
+    } finally {
       setCargandoCodigo(false);
-    }, 1000);
+    }
   };
 
-  const handleGuardar = async () => {
+ const handleGuardar = async () => {
     if (!nuevaPassword || !repetirPassword) {
-      Alert.alert('Error', 'Completá ambos campos de contraseña');
+      Alert.alert('Error', 'Completá ambos campos');
       return;
     }
     if (nuevaPassword !== repetirPassword) {
@@ -69,11 +91,24 @@ export default function RecuperarPasswordScreen({ navigation }) {
       return;
     }
     setCargandoGuardar(true);
-    // Simulación — en entrega final conectar al backend
-    setTimeout(() => {
+    try {
+      await authService.verificarCodigo2(email, codigo, nuevaPassword, repetirPassword);
       setGuardado(true);
+    } catch (error) {
+      const cod = error.response?.status;
+      if (cod === 400) {
+        Alert.alert('Error', 'Código incorrecto');
+      } else if (cod === 410) {
+        Alert.alert('Código expirado', 'Pedí un nuevo código');
+        setEmailEnviado(false);
+        setVerificado(false);
+        setCodigo('');
+      } else {
+        Alert.alert('Error', 'No se pudo actualizar la contraseña');
+      }
+    } finally {
       setCargandoGuardar(false);
-    }, 1000);
+    }
   };
 
   return (
