@@ -6,7 +6,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen({ navigation }) {
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -36,6 +36,11 @@ export default function LoginScreen({ navigation }) {
     } finally {
       setCargando(false);
     }
+  };
+  const handleInvitado = async () => {
+    // Limpiar cualquier sesión guardada antes de entrar como invitado
+    await logout();
+    navigation.navigate('Home');
   };
 
   return (
@@ -105,8 +110,8 @@ export default function LoginScreen({ navigation }) {
         </TouchableOpacity>
 
         {/* Continuar como invitado */}
-        <TouchableOpacity onPress={() => navigation.navigate('Home')}>
-          <Text style={styles.invitado}>Continuar como invitado</Text>
+       <TouchableOpacity onPress={handleInvitado}>
+        <Text style={styles.invitado}>Continuar como invitado</Text>
         </TouchableOpacity>
 
       </View>

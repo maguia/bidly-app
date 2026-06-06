@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { getPool, sql } = require('../database');
 const { evaluarCategoria } = require('../categorias');
 const authMiddleware = require('../middleware/auth');
+const jwt = require('jsonwebtoken');
 
 const CATEGORIAS = ['comun', 'especial', 'plata', 'oro', 'platino'];
 
@@ -86,7 +87,7 @@ router.get('/', async (req, res) => {
 
 // ─── GET /subastas/:id/catalogo ─────────────────────────
 // Devuelve los ítems del catálogo de una subasta
-router.get('/:id/catalogo', authMiddleware, async (req, res) => {
+router.get('/:id/catalogo', async (req, res) => {
   try {
     const pool = await getPool();
 
@@ -124,7 +125,7 @@ router.get('/:id/catalogo', authMiddleware, async (req, res) => {
 
 // ─── GET /subastas/:id/catalogo/:itemId ─────────────────
 // Devuelve el detalle de un ítem con historial de pujas y rango válido
-router.get('/:id/catalogo/:itemId', authMiddleware, async (req, res) => {
+router.get('/:id/catalogo/:itemId', async (req, res) => {
   try {
     const pool = await getPool();
 
@@ -171,26 +172,36 @@ router.get('/:id/catalogo/:itemId', authMiddleware, async (req, res) => {
     const rangoMin = mejorOferta + item.precioBase * 0.01;
     const rangoMax = mejorOferta + item.precioBase * 0.20;
 
-    // Ver si el usuario tiene límites o no
-    const catRes = await pool.request()
-      .input('uid', sql.Int, req.user.id)
-      .query('SELECT categoria FROM clientes WHERE identificador = @uid');
+    // Ver si hay usuario logueado
+    let sinLimite = false;
+    let esRegistrado = false;
 
-    const categoriaUser = catRes.recordset[0]?.categoria;
-    const sinLimite = ['oro', 'platino'].includes(categoriaUser);
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'bidly_secret');
+        const catRes = await pool.request()
+          .input('uid', sql.Int, decoded.id)
+          .query('SELECT categoria FROM clientes WHERE identificador = @uid');
+        const categoriaUser = catRes.recordset[0]?.categoria;
+        sinLimite = ['oro', 'platino'].includes(categoriaUser);
+        esRegistrado = true;
+      } catch {}
+    }
 
     res.json({
       id: String(item.itemId),
       nombre: item.nombre,
       descripcion: item.descripcionCompleta,
       estado: item.subastado === 'si' ? 'vendido' : 'disponible',
-      precioBase: item.precioBase,
+      precioBase: esRegistrado ? item.precioBase : null,
       duenioActual: item.duenio,
-      mejorOferta,
+      mejorOferta: esRegistrado ? mejorOferta : null,
       // Si es oro o platino no tiene límites
-      rangoMinimo: sinLimite ? null : rangoMin,
-      rangoMaximo: sinLimite ? null : rangoMax,
+      rangoMinimo: sinLimite ? null : (esRegistrado ? rangoMin : null),
+      rangoMaximo: sinLimite ? null : (esRegistrado ? rangoMax : null),
       sinLimitesPuja: sinLimite,
+      esRegistrado,
       historialPujas: pujos.map(p => ({
         postorId: p.postorId,
         monto: p.monto,
@@ -339,7 +350,7 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
 
     // Evaluar si corresponde subir de categoría
     await evaluarCategoria(req.user.id);
-    
+
     res.json({
       pujaId,
       estado: 'esperando_confirmacion',

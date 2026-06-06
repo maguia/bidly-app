@@ -2,9 +2,16 @@ import React from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet
 } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 
 export default function SolicitudEnviadaScreen({ route, navigation }) {
   const { email } = route.params;
+  const { logout } = useAuth();
+
+  const handleInvitado = async () => {
+    await logout();
+    navigation.replace('Home');
+  };
 
   return (
     <View style={styles.container}>
@@ -32,7 +39,7 @@ export default function SolicitudEnviadaScreen({ route, navigation }) {
       <Text style={styles.nota}>Este proceso puede demorar algunos días hábiles</Text>
 
       {/* Continuar como invitado */}
-      <TouchableOpacity onPress={() => navigation.replace('Home')}>
+      <TouchableOpacity onPress={handleInvitado}>
         <Text style={styles.invitado}>Continuar como invitado</Text>
       </TouchableOpacity>
 
