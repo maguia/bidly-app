@@ -1,5 +1,6 @@
 import 'react-native-gesture-handler';
 import React from 'react';
+import './web-scroll.css';
 import { View, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';

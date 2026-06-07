@@ -40,7 +40,7 @@ router.get('/', async (req, res) => {
 
     const result = await request.query(`
       SELECT s.identificador, s.fecha, s.hora, s.estado,
-             s.ubicacion, s.categoria,
+             s.ubicacion, s.categoria, s.moneda,
              p.nombre as martillero,
              (
                SELECT COUNT(*) 
@@ -53,7 +53,17 @@ router.get('/', async (req, res) => {
       LEFT JOIN subastadores sub ON sub.identificador = s.subastador
       LEFT JOIN personas p ON p.identificador = sub.identificador
       ${whereClause}
-      ORDER BY s.fecha, s.hora
+      ORDER BY 
+        CASE s.estado 
+          WHEN 'abierta' THEN 0 
+          ELSE 1 
+        END,
+        CASE 
+          WHEN CAST(s.fecha AS DATE) = CAST(GETDATE() AS DATE) THEN 0
+          WHEN s.fecha > GETDATE() THEN 1
+          ELSE 2
+        END,
+        s.fecha ASC, s.hora ASC
     `);
 
     const subastas = result.recordset.map(s => {
@@ -68,6 +78,7 @@ router.get('/', async (req, res) => {
         fecha: s.fecha ? new Date(s.fecha).toISOString().split('T')[0] : null,
         hora: s.hora,
         categoriaRequerida: s.categoria,
+        moneda: s.moneda|| 'ARS',
         estado: (() => {
           if (s.estado !== 'abierta') return 'finalizado';
           
@@ -107,6 +118,21 @@ router.get('/:id/catalogo', async (req, res) => {
   try {
     const pool = await getPool();
 
+    // Obtener el ítem con la puja más reciente (el que se está subastando ahora)
+    const itemActualRes = await pool.request()
+      .input('subId', sql.Int, req.params.id)
+      .query(`
+        SELECT TOP 1 p.item as itemId
+        FROM pujos p
+        INNER JOIN asistentes a ON a.identificador = p.asistente
+        WHERE a.subasta = @subId
+        ORDER BY p.identificador DESC
+      `);
+
+    const itemActualId = itemActualRes.recordset.length
+      ? itemActualRes.recordset[0].itemId
+      : null;
+
     const result = await pool.request()
       .input('subId', sql.Int, req.params.id)
       .query(`
@@ -114,10 +140,7 @@ router.get('/:id/catalogo', async (req, res) => {
                pr.descripcionCatalogo as nombre,
                ic.precioBase,
                ic.comision,
-               ic.subastado,
-               (SELECT COUNT(*) FROM pujos p 
-                INNER JOIN asistentes a ON a.identificador = p.asistente
-                WHERE p.item = ic.identificador AND a.subasta = @subId) as tienePujas
+               ic.subastado
         FROM itemsCatalogo ic
         INNER JOIN catalogos c ON c.identificador = ic.catalogo
         INNER JOIN productos pr ON pr.identificador = ic.producto
@@ -133,8 +156,8 @@ router.get('/:id/catalogo', async (req, res) => {
       nombre: i.nombre,
       precioBase: i.precioBase,
       comision: i.comision,
-      estado: i.subastado === 'si' ? 'vendido' 
-            : i.tienePujas ? 'pujando' 
+      estado: i.subastado === 'si' ? 'vendido'
+            : i.itemId === itemActualId ? 'pujando'
             : 'disponible'
     })));
 
@@ -196,22 +219,28 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
     const rangoMin = mejorOferta + item.precioBase * 0.01;
     const rangoMax = mejorOferta + item.precioBase * 0.20;
 
+    console.log(`Ítem ${item.itemId} — mejorOferta: ${mejorOferta}, rangoMin: ${rangoMin}, rangoMax: ${rangoMax}`);
+
     // Ver si hay usuario logueado
     let sinLimite = false;
     let esRegistrado = false;
 
+    // Obtener categoría de la subasta para determinar si aplican límites
+    const subCatRes = await pool.request()
+      .input('subId', sql.Int, req.params.id)
+      .query('SELECT categoria FROM subastas WHERE identificador = @subId');
+    
+    const categoriaSubasta = subCatRes.recordset[0]?.categoria;
+    sinLimite = ['oro', 'platino'].includes(categoriaSubasta);
+
     const authHeader = req.headers.authorization;
     if (authHeader) {
       try {
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'bidly_secret');
-        const catRes = await pool.request()
-          .input('uid', sql.Int, decoded.id)
-          .query('SELECT categoria FROM clientes WHERE identificador = @uid');
-        const categoriaUser = catRes.recordset[0]?.categoria;
-        sinLimite = ['oro', 'platino'].includes(categoriaUser);
+        jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'bidly_secret');
         esRegistrado = true;
       } catch {}
     }
+
 
     res.json({
       id: String(item.itemId),
@@ -305,8 +334,8 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       .input('uid', sql.Int, req.user.id)
       .query('SELECT categoria FROM clientes WHERE identificador = @uid');
 
-    const categoria = catRes.recordset[0]?.categoria;
-    const sinLimite = ['oro', 'platino'].includes(categoria);
+    // Límites según categoría de la SUBASTA, no del usuario
+    const sinLimite = ['oro', 'platino'].includes(subRes.recordset[0].categoria);
 
     if (sinLimite) {
       // Oro y platino: solo tiene que superar la mejor oferta actual

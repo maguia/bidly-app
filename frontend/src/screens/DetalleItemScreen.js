@@ -118,8 +118,10 @@ export default function DetalleItemScreen({ route, navigation }) {
 
   const puedePublicar = user && subasta?.accesoUsuario?.puedePujar;
   const estadoColor = getEstadoColor(item?.estado);
-  const estaEnVivo = subasta?.estado === 'en_vivo';
   const estaVendido = item?.estado === 'vendido';
+  const estaPujando = item?.estado === 'pujando'; // solo el ítem actual
+  const estaDisponible = item?.estado === 'disponible';
+  const estaEnVivo = subasta?.estado === 'en_vivo';
   const precioFinal = item?.historialPujas?.find(p => p.ganador)?.monto;
 
   return (
@@ -179,15 +181,15 @@ export default function DetalleItemScreen({ route, navigation }) {
               <View key={index} style={[styles.pujaRow, p.ganador && styles.pujaGanadoraRow]}>
                 <Text style={styles.pujaPostor}>Postor #{p.postorId}</Text>
                 <Text style={[styles.pujaMonto, p.ganador && styles.pujaGanadoraMonto]}>
-                  $ {p.monto?.toLocaleString('es-AR')} {p.ganador ? '🏆' : ''}
+                  $ {p.monto?.toLocaleString('es-AR')} {p.ganador ? '' : ''}
                 </Text>
               </View>
             ))}
           </>
         )}
 
-        {/* SUBASTA PRÓXIMA */}
-        {!estaEnVivo && !estaVendido && user && (
+        {/* SUBASTA PRÓXIMA o DISPONIBLE EN VIVO */}
+        {!estaVendido && !estaPujando && user && (
           <>
             <View style={styles.mejorOfertaBox}>
               <Text style={styles.mejorOfertaValor}>
@@ -198,26 +200,35 @@ export default function DetalleItemScreen({ route, navigation }) {
 
             <Text style={styles.seccionTitulo}>HISTORIAL DE PUJAS</Text>
             {item?.historialPujas?.length === 0 ? (
-              <Text style={styles.sinPujas}>Todavía no hay pujas realizadas</Text>
+              <Text style={styles.sinPujas}>Aún no hay pujas para este ítem</Text>
             ) : (
-              item?.historialPujas?.map((p, index) => (
-                <View key={index} style={styles.pujaRow}>
-                  <Text style={styles.pujaPostor}>Postor #{p.postorId}</Text>
-                  <Text style={styles.pujaMonto}>$ {p.monto?.toLocaleString('es-AR')}</Text>
-                </View>
-              ))
+              <ScrollView 
+                style={styles.historialScroll}
+                nestedScrollEnabled={true}
+                showsVerticalScrollIndicator={true}
+              >
+                {item?.historialPujas?.map((p, index) => (
+                  <View key={index} style={styles.pujaRow}>
+                    <Text style={styles.pujaPostor}>Postor #{p.postorId}</Text>
+                    <Text style={styles.pujaMonto}>$ {p.monto?.toLocaleString('es-AR')}</Text>
+                  </View>
+                ))}
+              </ScrollView>
             )}
 
-            <View style={styles.proximaBox}>
-              <Text style={styles.proximaTexto}>
-                Subasta comienza {new Date(subasta?.fecha + 'T00:00:00').toLocaleDateString('es-AR')} · {subasta?.hora?.slice(11,16)} hs
-              </Text>
-            </View>
+            {/* Solo mostrar fecha si es próxima (no en vivo) */}
+            {!estaEnVivo && (
+              <View style={styles.proximaBox}>
+                <Text style={styles.proximaTexto}>
+                  Subasta comienza {new Date(subasta?.fecha + 'T00:00:00').toLocaleDateString('es-AR')} · {subasta?.hora?.slice(11,16)} hs
+                </Text>
+              </View>
+            )}
           </>
         )}
 
-        {/* SUBASTA EN VIVO */}
-        {estaEnVivo && user && (
+        {/* ÍTEM PUJANDO AHORA */}
+        {estaPujando && user && (
           <>
             <View style={styles.mejorOfertaBox}>
               <Text style={styles.mejorOfertaValor}>
@@ -230,29 +241,40 @@ export default function DetalleItemScreen({ route, navigation }) {
             {item?.historialPujas?.length === 0 ? (
               <Text style={styles.sinPujas}>Aún no hay pujas para este ítem</Text>
             ) : (
-              item?.historialPujas?.map((p, index) => (
-                <View key={index} style={styles.pujaRow}>
-                  <Text style={styles.pujaPostor}>Postor #{p.postorId}</Text>
-                  <Text style={styles.pujaMonto}>$ {p.monto?.toLocaleString('es-AR')}</Text>
-                </View>
-              ))
+              <ScrollView 
+                style={styles.historialScroll}
+                nestedScrollEnabled={true}
+                showsVerticalScrollIndicator={true}
+              >
+                {item?.historialPujas?.map((p, index) => (
+                  <View key={index} style={styles.pujaRow}>
+                    <Text style={styles.pujaPostor}>Postor #{p.postorId}</Text>
+                    <Text style={styles.pujaMonto}>$ {p.monto?.toLocaleString('es-AR')}</Text>
+                  </View>
+                ))}
+              </ScrollView>
             )}
 
-            {puedePublicar && !estaVendido && (
+            {puedePublicar && (
               <>
-                <View style={styles.rangoBox}>
-                  <Text style={styles.rangoTexto}>
-                    Rango válido: mín. $ {item?.rangoMinimo ? item.rangoMinimo.toLocaleString('es-AR') : '—'} — máx. $ {item?.rangoMaximo ? item.rangoMaximo.toLocaleString('es-AR') : '—'}
-                  </Text>
-                  {!item?.sinLimitesPuja && (
-                    <Text style={styles.rangoNota}>Los límites no aplican a categorías Oro y Platino</Text>
-                  )}
-                </View>
+                {/* Rango solo para categorías que aplica */}
+                {!item?.sinLimitesPuja && item?.rangoMinimo && (
+                  <View style={styles.rangoBox}>
+                    <Text style={styles.rangoTexto}>
+                      Rango válido: mín. $ {item?.rangoMinimo?.toLocaleString('es-AR')} — máx. $ {item?.rangoMaximo?.toLocaleString('es-AR')}
+                    </Text>
+                    
+                  </View>
+                )}
 
                 <Text style={styles.inputLabel}>Tu oferta</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder={`Ingresá tu oferta (mín. $ ${item?.rangoMinimo?.toLocaleString('es-AR')})`}
+                  placeholder={
+                    item?.sinLimitesPuja
+                      ? `Superá la mejor oferta: $ ${item?.mejorOferta?.toLocaleString('es-AR')}`
+                      : `Mín. $ ${item?.rangoMinimo?.toLocaleString('es-AR')}`
+                  }
                   placeholderTextColor="#aaa"
                   value={monto}
                   onChangeText={setMonto}
@@ -276,15 +298,21 @@ export default function DetalleItemScreen({ route, navigation }) {
 
                 {mostrarMedios && (
                   <View style={styles.mediosDropdown}>
-                    {mediosPago.map(m => (
-                      <TouchableOpacity
-                        key={m.id}
-                        style={styles.medioItem}
-                        onPress={() => { setMedioSeleccionado(m); setMostrarMedios(false); }}
-                      >
-                        <Text style={styles.medioItemTexto}>{m.descripcion}</Text>
-                      </TouchableOpacity>
-                    ))}
+                    {mediosPago.length === 0 ? (
+                      <View style={styles.medioItem}>
+                        <Text style={styles.medioItemTexto}>No tenés medios de pago en {subasta?.moneda}</Text>
+                      </View>
+                    ) : (
+                      mediosPago.map(m => (
+                        <TouchableOpacity
+                          key={m.id}
+                          style={styles.medioItem}
+                          onPress={() => { setMedioSeleccionado(m); setMostrarMedios(false); }}
+                        >
+                          <Text style={styles.medioItemTexto}>{m.descripcion}</Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
                   </View>
                 )}
 
@@ -474,6 +502,13 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     fontWeight: '600',
   },
+
+  historialScroll: {
+    maxHeight: 160,
+    borderRadius: 8,
+    backgroundColor: '#E0E0E0',
+    marginBottom: 12,
+  },
   pujaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -511,12 +546,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
-  },
-  rangoNota: {
-    color: '#666',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 4,
   },
   inputLabel: {
     fontSize: 13,

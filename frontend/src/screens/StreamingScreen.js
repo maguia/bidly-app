@@ -36,7 +36,7 @@ export default function StreamingScreen({ route, navigation }) {
 
       {/* Info */}
       <View style={styles.infoBox}>
-        <Text style={styles.infoTitulo}>🔨 Martillero: {subasta.martillero}</Text>
+        <Text style={styles.infoTitulo}> Martillero: {subasta.martillero}</Text>
         <Text style={styles.infoTexto}>📍 {subasta.ubicacion}</Text>
       </View>
 

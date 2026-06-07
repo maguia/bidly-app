@@ -1,0 +1,14 @@
+div {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #C9973A transparent;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #C9973A;
+  border-radius: 4px;
+}

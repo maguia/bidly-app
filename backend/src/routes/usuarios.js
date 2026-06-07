@@ -8,7 +8,6 @@ const authMiddleware = require('../middleware/auth');
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool();
-
     const result = await pool.request()
       .input('id', sql.Int, req.user.id)
       .query(`
@@ -21,11 +20,15 @@ router.get('/me', authMiddleware, async (req, res) => {
         WHERE p.identificador = @id
       `);
 
-    if (!result.recordset.length) {
+    if (!result.recordset.length)
       return res.status(404).json({ codigo: 404, mensaje: 'Usuario no encontrado' });
-    }
 
     const u = result.recordset[0];
+
+    // Traer medios de pago
+    const mediosRes = await pool.request()
+      .input('id', sql.Int, req.user.id)
+      .query('SELECT * FROM mediosPago WHERE usuarioId = @id');
 
     res.json({
       id: u.identificador,
@@ -33,7 +36,8 @@ router.get('/me', authMiddleware, async (req, res) => {
       email: u.email,
       categoria: u.categoria,
       verificado: u.admitido === 'si',
-      domicilio: u.direccion
+      domicilio: u.direccion,
+      mediosPago: mediosRes.recordset
     });
 
   } catch (err) {
@@ -147,7 +151,7 @@ router.post('/me/medios-pago', authMiddleware, async (req, res) => {
         INSERT INTO mediosPago (id, usuarioId, tipo, descripcion, verificado, moneda, limiteDisponible)
         VALUES (@id, @usuarioId, @tipo, @descripcion, 0, @moneda, @limite)
       `);
-      
+
     // Evaluar si corresponde subir de categoría
     await evaluarCategoria(req.user.id);
     res.status(201).json({
