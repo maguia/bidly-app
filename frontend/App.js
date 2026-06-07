@@ -15,6 +15,7 @@ import RegistroScreen from './src/screens/RegistroScreen';
 import SolicitudEnviadaScreen from './src/screens/SolicitudEnviadaScreen';
 import CompletarRegistroScreen from './src/screens/CompletarRegistroScreen';
 import MedioPagoScreen from './src/screens/MedioPagoScreen';
+import StreamingScreen from './src/screens/StreamingScreen';
 
 const Stack = createStackNavigator();
 
@@ -91,7 +92,12 @@ export default function App() {
           <Stack.Screen name="Home" component={HomeScreen} />
           <Stack.Screen name="Catalogo" component={CatalogoScreen} />
           <Stack.Screen name="DetalleItem" component={DetalleItemScreen} />
-          
+          <Stack.Screen
+            name="Streaming"
+            component={StreamingScreen}
+            options={{ headerShown: false }}
+          />
+
         </Stack.Navigator>
       </NavigationContainer>
     </AuthProvider>

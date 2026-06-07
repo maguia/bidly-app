@@ -6,6 +6,7 @@ import {
 import { subastasService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 //import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 
 
 // Solo importar en móvil
@@ -50,10 +51,10 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
-  const getEstadoColor = (estado) => {
-    if (estado === 'en_vivo') return '#4CAF50';
-    if (estado === 'proximo') return '#C9973A';
-    return '#999';
+const getEstadoColor = (estado) => {
+    if (estado === 'en_vivo') return { bg: '#124A1D', texto: '#4DAF52' };
+    if (estado === 'proximo') return { bg: '#797731', texto: '#E1FF38' };
+    return { bg: '#3A1000', texto: '#E8593C' }; // finalizado
   };
 
   const getEstadoTexto = (estado) => {
@@ -75,62 +76,75 @@ export default function HomeScreen({ navigation }) {
         <Text style={styles.cardTitulo} numberOfLines={1}>
           Subasta #{item.id} — {item.nombre}
         </Text>
-        <View style={[styles.badge, { backgroundColor: getEstadoColor(item.estado) }]}>
-          <Text style={styles.badgeTexto}>{getEstadoTexto(item.estado)}</Text>
+       <View style={[styles.badge, { backgroundColor: getEstadoColor(item.estado).bg }]}>
+          <Text style={[styles.badgeTexto, { color: getEstadoColor(item.estado).texto }]}>
+            {getEstadoTexto(item.estado)}
+          </Text>
         </View>
       </View>
 
       {/* Info */}
       <View style={styles.cardInfoRow}>
-        <Text style={styles.cardInfoIcon}>🔨</Text>
+        <Ionicons name="person-outline" size={13} color="#C9973A" style={styles.cardInfoIcon} />
         <Text style={styles.cardInfoTexto}>
-          Martillero: <Text style={styles.cardCategoria}>{item.martillero}</Text>
+          Martillero: <Text style={styles.cardDestacado}>{item.martillero}</Text>
         </Text>
       </View>
       <View style={styles.cardInfoRow}>
-        <Text style={styles.cardInfoIcon}>📍</Text>
+        <Ionicons name="location-outline" size={13} color="#C9973A" style={styles.cardInfoIcon} />
         <Text style={styles.cardInfoTexto}>{item.ubicacion}</Text>
       </View>
       <View style={styles.cardInfoRow}>
-        <Text style={styles.cardInfoIcon}>📅</Text>
+        <Ionicons name="time-outline" size={13} color="#C9973A" style={styles.cardInfoIcon} />
         <Text style={styles.cardInfoTexto}>
-          {new Date(item.fecha).toLocaleDateString('es-AR')} — {item.hora?.slice(11,16) || ''}
+          {new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-AR')} — {item.hora?.slice(11,16) || ''}
         </Text>
       </View>
       <View style={styles.cardInfoRow}>
-        <Text style={styles.cardInfoIcon}>🏷️</Text>
+        <Ionicons name="pricetag-outline" size={13} color="#C9973A" style={styles.cardInfoIcon} />
         <Text style={styles.cardInfoTexto}>
-          Categoría requerida: <Text style={styles.cardCategoria}>{item.categoriaRequerida}</Text>
+          Categoría requerida: <Text style={styles.cardDestacado}>{item.categoriaRequerida}</Text>
         </Text>
+      </View>
+      <View style={styles.cardInfoRow}>
+        <Text style={styles.cardInfoTextoClaro}>{item.itemsRestantes} ítems restantes</Text>
+        <View style={styles.monedaBadge}>
+          <Text style={styles.monedaTexto}>
+            $  {item.moneda === 'USD' ? 'Dólares' : 'Pesos'}
+          </Text>
+        </View>
       </View>
 
       {/* Footer */}
       <View style={styles.cardFooter}>
-        <View style={styles.cardFooterLeft}>
-          <Text style={styles.cardMoneda}>💲 {item.moneda === 'USD' ? 'Dólares' : 'Pesos'}</Text>
-          {item.streaming && (
-            <View style={styles.streamingBadge}>
-              <Text style={styles.streamingTexto}>● Streaming</Text>
-            </View>
+        <View style={styles.cardFooterIzq}>
+          {/* Acceso */}
+          {(!user || !item.accesoUsuario.puedePujar) ? (
+            <Text style={styles.bloqueado}>
+              ✕ {!user ? 'Iniciá sesión para pujar' : item.accesoUsuario.razonBloqueo}
+            </Text>
+          ) : (
+            <Text style={styles.pujarTexto}>✓ Podés pujar</Text>
           )}
         </View>
-        <Text style={styles.cardItems}>{item.itemsRestantes} ítems restantes</Text>
+
+        <View style={styles.cardFooterDer}>
+          {/* Botón streaming */}
+          {item.estado === 'en_vivo' && (
+            <TouchableOpacity
+              style={styles.streamingBoton}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                navigation.navigate('Streaming', { subasta: item });
+              }}
+            >
+              <Text style={styles.streamingBotonTexto}>● Streaming</Text>
+            </TouchableOpacity>
+          )}
+
+          
+        </View>
       </View>
-
-      {/* Acceso */}
-      {(!user || !item.accesoUsuario.puedePujar) && (
-        <View style={styles.bloqueadoRow}>
-          <Text style={styles.bloqueado}>
-            ⛔ {!user ? 'Iniciá sesión para pujar' : item.accesoUsuario.razonBloqueo}
-          </Text>
-        </View>
-      )}
-
-      {user && item.accesoUsuario.puedePujar && (
-        <View style={styles.pujarRow}>
-          <Text style={styles.pujarTexto}>← Podés pujar</Text>
-        </View>
-      )}
 
     </TouchableOpacity>
   );
@@ -143,16 +157,17 @@ return (
         <Text style={styles.headerTitulo}>Subastas</Text>
         {user ? (
           <View style={styles.categoriabadge}>
-            <Text style={styles.headerCategoria}>
-              👤 Mi categoría: {user.categoria?.toUpperCase()}
-            </Text>
+            <Ionicons name="person-outline" size={14} color="#1A2E4A" />
+            <Text style={styles.headerCategoriaTexto}>Mi categoría: </Text>
+            <Text style={styles.headerCategoriaValor}>{user.categoria?.toUpperCase()}</Text>
           </View>
         ) : (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.loginBtn}
             onPress={() => navigation.navigate('Login')}
           >
-            <Text style={styles.loginBtnTexto}>👤 Iniciar sesión</Text>
+            <Ionicons name="person-outline" size={14} color="#1A2E4A" style={{ marginRight: 4 }} />
+            <Text style={styles.loginBtnTexto}>Iniciar sesión</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -299,183 +314,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#E0E0E0',
   },
-  
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  headerTitulo: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#C9973A',
-  },
-  categoriabadge: {
-    backgroundColor: '#C9973A',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  headerCategoria: {
-    fontSize: 12,
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  loginBtn: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  loginBtnTexto: {
-    color: '#1A2E4A',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  lista: {
-    padding: 16,
-  },
-  card: {
-    backgroundColor: '#1A2E4A',
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 12,
-  },
-  
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  cardTitulo: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#C9973A',
-    flex: 1,
-    marginRight: 8,
-  },
-  badge: {
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  badgeTexto: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  cardInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  cardInfoIcon: {
-    fontSize: 13,
-    marginRight: 6,
-    width: 20,
-  },
-  cardInfoTexto: {
-    color: '#fff',
-    fontSize: 13,
-    flex: 1,
-  },
-  cardCategoria: {
-    color: '#C9973A',
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#2a3e5a',
-  },
-  cardFooterLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  cardMoneda: {
-    color: '#C9973A',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  streamingBadge: {
-    backgroundColor: '#4CAF50',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  streamingTexto: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  cardItems: {
-    color: '#aaa',
-    fontSize: 12,
-  },
-  bloqueadoRow: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#2a3e5a',
-  },
-  bloqueado: {
-    color: '#E8593C',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  pujarRow: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#2a3e5a',
-  },
-  pujarTexto: {
-    color: '#4CAF50',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  vacio: {
-    textAlign: 'center',
-    color: '#666',
-    marginTop: 40,
-    fontSize: 16,
-  },
- 
-  fechaBox: {
-    backgroundColor: '#1A2E4A',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  fechaInput: {
-    backgroundColor: '#2a3e5a',
-    borderRadius: 8,
-    padding: 10,
-    color: '#fff',
-    fontSize: 14,
-  },
-  
-  fechaWebInput: {
-    backgroundColor: '#2a3e5a',
-    borderRadius: 8,
-    padding: 10,
-    color: '#fff',
-    fontSize: 14,
-  },
- header: {
+  header: {
     backgroundColor: '#1A2E4A',
     paddingTop: 50,
     paddingBottom: 16,
@@ -484,7 +323,45 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-filtrosContainer: {
+  headerTitulo: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#C9973A',
+  },
+  categoriabadge: {
+    backgroundColor: '#d1d1d6',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  headerCategoriaTexto: {
+    color: '#1A2E4A',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  headerCategoriaValor: {
+    color: '#C9973A',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  loginBtn: {
+    backgroundColor: '#d1d1d6',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  loginBtnTexto: {
+    color: '#1A2E4A',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  filtrosContainer: {
     backgroundColor: '#E0E0E0',
     paddingTop: 12,
     paddingHorizontal: 14,
@@ -540,5 +417,122 @@ filtrosContainer: {
     marginTop: 12,
     alignItems: 'center',
   },
+  loader: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  lista: {
+    padding: 16,
+  },
+  card: {
+    backgroundColor: '#1A2E4A',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 12,
+  },
 
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cardTitulo: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#C9973A',
+    flex: 1,
+    marginRight: 8,
+  },
+  badge: {
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  badgeTexto: {
+  
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  cardInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  cardInfoIcon: {
+    marginRight: 6,
+    width: 18,
+  },
+  cardInfoTexto: {
+    color: '#fff',
+    fontSize: 13,
+    flex: 1,
+  },
+    cardInfoTextoClaro: {
+    color: '#8c8989',
+    fontSize: 13,
+    flex: 1,
+  },
+  cardDestacado: {
+    color: '#C9973A',
+    fontWeight: 'bold',
+    textTransform: 'capitalize',
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#2a3e5a',
+  },
+  cardFooterIzq: {
+    flex: 1,
+  },
+  cardFooterDer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bloqueado: {
+    color: '#E8593C',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  pujarTexto: {
+    color: '#4CAF50',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  streamingBoton: {
+    backgroundColor: '#fff',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#E8593C',
+  },
+  streamingBotonTexto: {
+    color: '#E8593C',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  monedaBadge: {
+    backgroundColor: '#435873',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  monedaTexto: {
+    color: '#C9973A',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  vacio: {
+    textAlign: 'center',
+    color: '#666',
+    marginTop: 40,
+    fontSize: 16,
+  },
 });

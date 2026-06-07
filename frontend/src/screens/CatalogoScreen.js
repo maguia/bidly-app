@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity,
+  View, Text, FlatList, TouchableOpacity, useWindowDimensions , 
   StyleSheet, ActivityIndicator, Alert, TextInput, Dimensions
 } from 'react-native';
 import { subastasService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 32) / 2;
 
 export default function CatalogoScreen({ route, navigation }) {
   const { subasta } = route.params;
@@ -16,6 +14,9 @@ export default function CatalogoScreen({ route, navigation }) {
   const [itemsFiltrados, setItemsFiltrados] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState('');
+
+  const { width } = useWindowDimensions();
+  const CARD_WIDTH = (width - 32) / 2;
 
   useEffect(() => {
     cargarCatalogo();
@@ -53,7 +54,7 @@ export default function CatalogoScreen({ route, navigation }) {
 
   const renderItem = ({ item }) => (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, { width: CARD_WIDTH }]}
       onPress={() => navigation.navigate('DetalleItem', {
         subastaId: subasta.id,
         itemId: item.id,
@@ -212,7 +213,6 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#1A2E4A',
     borderRadius: 10,
-    width: CARD_WIDTH,
     overflow: 'hidden',
   },
   cardImagen: {

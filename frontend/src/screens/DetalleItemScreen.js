@@ -3,7 +3,8 @@ import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, ScrollView
 } from 'react-native';
-import { subastasService } from '../services/api';
+import { Ionicons } from '@expo/vector-icons';
+import { subastasService, usuarioService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function DetalleItemScreen({ route, navigation }) {
@@ -13,9 +14,13 @@ export default function DetalleItemScreen({ route, navigation }) {
   const [cargando, setCargando] = useState(true);
   const [monto, setMonto] = useState('');
   const [pujando, setPujando] = useState(false);
+  const [medioSeleccionado, setMedioSeleccionado] = useState(null);
+  const [mediosPago, setMediosPago] = useState([]);
+  const [mostrarMedios, setMostrarMedios] = useState(false);
 
   useEffect(() => {
     cargarDetalle();
+    if (user) cargarMedios();
   }, []);
 
   const cargarDetalle = async () => {
@@ -29,6 +34,18 @@ export default function DetalleItemScreen({ route, navigation }) {
     } finally {
       setCargando(false);
     }
+  };
+
+  const cargarMedios = async () => {
+    try {
+      const res = await usuarioService.perfil();
+      const todos = res.data.mediosPago || [];
+      // Filtrar por moneda de la subasta
+      const monedaSubasta = subasta?.moneda || 'ARS';
+      const filtrados = todos.filter(m => m.moneda === monedaSubasta);
+      setMediosPago(filtrados);
+      if (filtrados.length > 0) setMedioSeleccionado(filtrados[0]);
+    } catch {}
   };
 
   const getEstadoColor = (estado) => {
@@ -47,6 +64,10 @@ export default function DetalleItemScreen({ route, navigation }) {
       Alert.alert('Error', 'El monto debe ser un número válido mayor a 0');
       return;
     }
+    if (!medioSeleccionado) {
+      Alert.alert('Error', 'Seleccioná un medio de pago');
+      return;
+    }
     if (!item.sinLimitesPuja) {
       if (montoNum < item.rangoMinimo) {
         Alert.alert('Monto muy bajo', `El monto mínimo es $${item.rangoMinimo?.toLocaleString('es-AR')}`);
@@ -58,16 +79,17 @@ export default function DetalleItemScreen({ route, navigation }) {
       }
     } else {
       if (montoNum <= item.mejorOferta) {
-        Alert.alert('Monto insuficiente', `Tu oferta debe superar la mejor oferta actual de $${item.mejorOferta?.toLocaleString('es-AR')}`);
+        Alert.alert('Monto insuficiente', `Tu oferta debe superar $${item.mejorOferta?.toLocaleString('es-AR')}`);
         return;
       }
     }
+
     setPujando(true);
     try {
-      const res = await subastasService.pujar(subastaId, itemId, montoNum, 'mp_visa_4521');
+      const res = await subastasService.pujar(subastaId, itemId, montoNum, medioSeleccionado.id);
       Alert.alert(
         '✅ Puja enviada',
-        `Tu puja de $${montoNum.toLocaleString('es-AR')} fue registrada.\nID: ${res.data.pujaId}`,
+        `Tu puja de $${montoNum.toLocaleString('es-AR')} fue registrada.`,
         [{ text: 'OK', onPress: () => cargarDetalle() }]
       );
       setMonto('');
@@ -78,10 +100,8 @@ export default function DetalleItemScreen({ route, navigation }) {
         Alert.alert('Oferta fuera de rango', `Mínimo: $${datos.rangoMinimo?.toLocaleString('es-AR')}\nMáximo: $${datos.rangoMaximo?.toLocaleString('es-AR')}`);
       } else if (codigo === 423) {
         Alert.alert('Subasta no activa', 'Esta subasta no está abierta en este momento');
-      } else if (codigo === 403) {
-        Alert.alert('Sin permiso', 'No tenés habilitación para pujar en esta subasta');
       } else {
-        Alert.alert('Error', 'No se pudo registrar la puja. Intentá de nuevo');
+        Alert.alert('Error', 'No se pudo registrar la puja');
       }
     } finally {
       setPujando(false);
@@ -98,6 +118,9 @@ export default function DetalleItemScreen({ route, navigation }) {
 
   const puedePublicar = user && subasta?.accesoUsuario?.puedePujar;
   const estadoColor = getEstadoColor(item?.estado);
+  const estaEnVivo = subasta?.estado === 'en_vivo';
+  const estaVendido = item?.estado === 'vendido';
+  const precioFinal = item?.historialPujas?.find(p => p.ganador)?.monto;
 
   return (
     <ScrollView style={styles.container}>
@@ -117,102 +140,171 @@ export default function DetalleItemScreen({ route, navigation }) {
 
       <View style={styles.body}>
 
-        {/* Imagen placeholder */}
+        {/* Imagen */}
         <View style={styles.imagenBox}>
           <Text style={styles.imagenTexto}>[ Imágenes del ítem · 6 fotos ]</Text>
         </View>
 
-        {/* Info básica — visible para todos */}
-        <Text style={styles.nombre}>{item?.nombre}</Text>
+        {/* Info básica */}
+        <Text style={styles.nombre}>"{item?.nombre}" </Text>
         <Text style={styles.descripcion}>{item?.descripcion}</Text>
-        <Text style={styles.duenio}>Actual dueño: {item?.duenioActual}</Text>
 
-        {/* Precio base — solo usuarios registrados */}
-        {user && item?.precioBase && (
-          <Text style={styles.precioBase}>
-            Precio Base: ${item?.precioBase?.toLocaleString('es-AR')}
-          </Text>
-        )}
+        <View style={styles.infoRow}>
+          <Text style={styles.duenio}>Actual dueño: {item?.duenioActual}</Text>
+          {user && item?.precioBase && (
+            <Text style={styles.precioBase}>Precio Base: $ {item?.precioBase?.toLocaleString('es-AR')}</Text>
+          )}
+        </View>
 
-        {/* Mejor oferta e historial — solo usuarios registrados */}
-        {user ? (
+        {/* SUBASTA VENDIDA */}
+        {estaVendido && user && (
           <>
-            <View style={styles.mejorOfertaBox}>
-              <Text style={styles.mejorOfertaLabel}>Mejor oferta actual</Text>
-              <Text style={styles.mejorOfertaValor}>
-                ${item?.mejorOferta?.toLocaleString('es-AR')}
+            <View style={styles.precioFinalBox}>
+              <Text style={styles.precioFinalValor}>
+                $ {precioFinal?.toLocaleString('es-AR') || item?.mejorOferta?.toLocaleString('es-AR')}
               </Text>
+              <Text style={styles.precioFinalLabel}>Precio final</Text>
             </View>
 
-            {/* Rango válido */}
-            {!item?.sinLimitesPuja && item?.rangoMinimo && (
-              <View style={styles.rangoBox}>
-                <Text style={styles.rangoTexto}>
-                  Rango válido: ${item?.rangoMinimo?.toLocaleString('es-AR')} — ${item?.rangoMaximo?.toLocaleString('es-AR')}
-                </Text>
-                <Text style={styles.rangoNota}>
-                  Los límites no aplican a categorías Oro y Platino
-                </Text>
-              </View>
-            )}
+            <Text style={styles.nuevoDuenio}>
+              Nuevo dueño: Postor #{item?.historialPujas?.find(p => p.ganador)?.postorId}
+            </Text>
 
-            {item?.sinLimitesPuja && (
-              <View style={styles.rangoBox}>
-                <Text style={styles.rangoTexto}>Sin límites de rango (categoría {user?.categoria})</Text>
-              </View>
-            )}
+            <View style={styles.finalizadaBox}>
+              <Text style={styles.finalizadaTexto}>Subasta finalizada</Text>
+            </View>
 
-            {/* Historial de pujas */}
-            <Text style={styles.seccionTitulo}>Historial de pujas</Text>
-            {item?.historialPujas?.length === 0 && (
-              <Text style={styles.sinPujas}>Aún no hay pujas para este ítem</Text>
-            )}
+            <Text style={styles.seccionTitulo}>HISTORIAL DE PUJAS</Text>
             {item?.historialPujas?.map((p, index) => (
-              <View key={index} style={styles.pujaRow}>
+              <View key={index} style={[styles.pujaRow, p.ganador && styles.pujaGanadoraRow]}>
                 <Text style={styles.pujaPostor}>Postor #{p.postorId}</Text>
-                <Text style={[styles.pujaMonto, p.ganador && styles.pujaGanadora]}>
-                  ${p.monto?.toLocaleString('es-AR')} {p.ganador ? '🏆' : ''}
+                <Text style={[styles.pujaMonto, p.ganador && styles.pujaGanadoraMonto]}>
+                  $ {p.monto?.toLocaleString('es-AR')} {p.ganador ? '🏆' : ''}
                 </Text>
               </View>
             ))}
+          </>
+        )}
 
-            {/* Formulario de puja */}
-            {puedePublicar && item?.estado !== 'vendido' && (
-              <View style={styles.pujarBox}>
-                <Text style={styles.seccionTitulo}>Tu oferta</Text>
+        {/* SUBASTA PRÓXIMA */}
+        {!estaEnVivo && !estaVendido && user && (
+          <>
+            <View style={styles.mejorOfertaBox}>
+              <Text style={styles.mejorOfertaValor}>
+                $ {item?.precioBase?.toLocaleString('es-AR')}
+              </Text>
+              <Text style={styles.mejorOfertaLabel}>Precio base</Text>
+            </View>
+
+            <Text style={styles.seccionTitulo}>HISTORIAL DE PUJAS</Text>
+            {item?.historialPujas?.length === 0 ? (
+              <Text style={styles.sinPujas}>Todavía no hay pujas realizadas</Text>
+            ) : (
+              item?.historialPujas?.map((p, index) => (
+                <View key={index} style={styles.pujaRow}>
+                  <Text style={styles.pujaPostor}>Postor #{p.postorId}</Text>
+                  <Text style={styles.pujaMonto}>$ {p.monto?.toLocaleString('es-AR')}</Text>
+                </View>
+              ))
+            )}
+
+            <View style={styles.proximaBox}>
+              <Text style={styles.proximaTexto}>
+                Subasta comienza {new Date(subasta?.fecha + 'T00:00:00').toLocaleDateString('es-AR')} · {subasta?.hora?.slice(11,16)} hs
+              </Text>
+            </View>
+          </>
+        )}
+
+        {/* SUBASTA EN VIVO */}
+        {estaEnVivo && user && (
+          <>
+            <View style={styles.mejorOfertaBox}>
+              <Text style={styles.mejorOfertaValor}>
+                $ {item?.mejorOferta?.toLocaleString('es-AR')}
+              </Text>
+              <Text style={styles.mejorOfertaLabel}>Mejor oferta actual</Text>
+            </View>
+
+            <Text style={styles.seccionTitulo}>HISTORIAL DE PUJAS</Text>
+            {item?.historialPujas?.length === 0 ? (
+              <Text style={styles.sinPujas}>Aún no hay pujas para este ítem</Text>
+            ) : (
+              item?.historialPujas?.map((p, index) => (
+                <View key={index} style={styles.pujaRow}>
+                  <Text style={styles.pujaPostor}>Postor #{p.postorId}</Text>
+                  <Text style={styles.pujaMonto}>$ {p.monto?.toLocaleString('es-AR')}</Text>
+                </View>
+              ))
+            )}
+
+            {puedePublicar && !estaVendido && (
+              <>
+                <View style={styles.rangoBox}>
+                  <Text style={styles.rangoTexto}>
+                    Rango válido: mín. $ {item?.rangoMinimo ? item.rangoMinimo.toLocaleString('es-AR') : '—'} — máx. $ {item?.rangoMaximo ? item.rangoMaximo.toLocaleString('es-AR') : '—'}
+                  </Text>
+                  {!item?.sinLimitesPuja && (
+                    <Text style={styles.rangoNota}>Los límites no aplican a categorías Oro y Platino</Text>
+                  )}
+                </View>
+
+                <Text style={styles.inputLabel}>Tu oferta</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder={
-                    item?.sinLimitesPuja
-                      ? `Mínimo: $${(item?.mejorOferta + 1)?.toLocaleString('es-AR')}`
-                      : `Mínimo: $${item?.rangoMinimo?.toLocaleString('es-AR')}`
-                  }
-                  placeholderTextColor="#999"
+                  placeholder={`Ingresá tu oferta (mín. $ ${item?.rangoMinimo?.toLocaleString('es-AR')})`}
+                  placeholderTextColor="#aaa"
                   value={monto}
                   onChangeText={setMonto}
                   keyboardType="numeric"
                 />
+
+                <Text style={styles.verificaTexto}>
+                  Verificá que tu medio de pago tenga fondos suficientes para cubrir la puja
+                </Text>
+
+                <Text style={styles.inputLabel}>Medio de pago</Text>
                 <TouchableOpacity
-                  style={[styles.boton, pujando && styles.botonDeshabilitado]}
+                  style={styles.medioSelector}
+                  onPress={() => setMostrarMedios(!mostrarMedios)}
+                >
+                  <Text style={styles.medioSelectorTexto}>
+                    {medioSeleccionado ? medioSeleccionado.descripcion : 'Seleccionar medio de pago'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color="#aaa" />
+                </TouchableOpacity>
+
+                {mostrarMedios && (
+                  <View style={styles.mediosDropdown}>
+                    {mediosPago.map(m => (
+                      <TouchableOpacity
+                        key={m.id}
+                        style={styles.medioItem}
+                        onPress={() => { setMedioSeleccionado(m); setMostrarMedios(false); }}
+                      >
+                        <Text style={styles.medioItemTexto}>{m.descripcion}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.botonOfertar, pujando && styles.botonDeshabilitado]}
                   onPress={handlePujar}
                   disabled={pujando}
                 >
                   {pujando
                     ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.botonTexto}>OFERTAR AHORA</Text>
+                    : <Text style={styles.botonOfertarTexto}>OFERTAR AHORA</Text>
                   }
                 </TouchableOpacity>
-              </View>
-            )}
-
-            {item?.estado === 'vendido' && (
-              <View style={styles.vendidoBox}>
-                <Text style={styles.vendidoTexto}>Este ítem ya fue vendido</Text>
-              </View>
+              </>
             )}
           </>
-        ) : (
-          /* Invitado — mostrar restricción */
+        )}
+
+        {/* Invitado */}
+        {!user && (
           <View style={styles.restriccionBox}>
             <Text style={styles.restriccionTitulo}>Visualización restringida</Text>
             <Text style={styles.restriccionTexto}>
@@ -251,11 +343,11 @@ const styles = StyleSheet.create({
   },
   volver: {
     color: '#C9973A',
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: 'bold',
   },
   headerTitulo: {
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#C9973A',
     flex: 1,
@@ -285,81 +377,114 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   nombre: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#C9973A',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   descripcion: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#444',
     marginBottom: 6,
   },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   duenio: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#666',
-    marginBottom: 4,
   },
   precioBase: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#1A2E4A',
-    fontWeight: '600',
-    marginBottom: 16,
-    marginTop: 4,
+    fontWeight: 'bold',
   },
   mejorOfertaBox: {
-    backgroundColor: '#1A2E4A',
-    borderRadius: 10,
-    padding: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  mejorOfertaValor: {
+    color: '#C9973A',
+    fontSize: 36,
+    fontWeight: 'bold',
+  },
+  mejorOfertaLabel: {
+    color: '#666',
+    fontSize: 13,
+  },
+  precioFinalBox: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  precioFinalValor: {
+    color: '#C9973A',
+    fontSize: 36,
+    fontWeight: 'bold',
+  },
+  precioFinalLabel: {
+    color: '#666',
+    fontSize: 13,
+  },
+  nuevoDuenio: {
+    color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  finalizadaBox: {
+    backgroundColor: '#3A1000',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  finalizadaTexto: {
+    color: '#E8593C',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  proximaBox: {
+    backgroundColor: '#797731',
+    borderRadius: 8,
+    padding: 12,
     alignItems: 'center',
     marginBottom: 16,
     marginTop: 8,
   },
-  mejorOfertaLabel: {
-    color: '#fff',
+  proximaTexto: {
+    color: '#E1FF38',
     fontSize: 13,
-    marginBottom: 4,
-  },
-  mejorOfertaValor: {
-    color: '#C9973A',
-    fontSize: 32,
     fontWeight: 'bold',
-  },
-  rangoBox: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  rangoTexto: {
-    color: '#1A2E4A',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  rangoNota: {
-    color: '#666',
-    fontSize: 11,
-    marginTop: 4,
   },
   seccionTitulo: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: 'bold',
     color: '#1A2E4A',
     marginBottom: 10,
-    marginTop: 10,
+    marginTop: 8,
+    letterSpacing: 1,
   },
   sinPujas: {
-    color: '#666',
+    color: '#C9973A',
     fontSize: 13,
     marginBottom: 10,
+    fontWeight: '600',
   },
   pujaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+  },
+  pujaGanadoraRow: {
+    backgroundColor: '#f0fff0',
     borderRadius: 6,
-    padding: 10,
-    marginBottom: 6,
+    paddingHorizontal: 8,
   },
   pujaPostor: {
     color: '#1A2E4A',
@@ -370,50 +495,100 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  pujaGanadora: {
+  pujaGanadoraMonto: {
     color: '#4CAF50',
+    fontWeight: 'bold',
   },
-  pujarBox: {
+  rangoBox: {
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 16,
-    marginTop: 10,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  rangoTexto: {
+    color: '#1A2E4A',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  rangoNota: {
+    color: '#666',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  inputLabel: {
+    fontSize: 13,
+    color: '#1A2E4A',
+    fontWeight: '600',
+    marginBottom: 6,
   },
   input: {
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#1A2E4A',
     borderRadius: 8,
     padding: 14,
-    fontSize: 16,
-    color: '#1A2E4A',
+    fontSize: 14,
+    color: '#fff',
     marginBottom: 12,
   },
-  boton: {
+  verificaTexto: {
+    color: '#666',
+    fontSize: 11,
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
+  medioSelector: {
+    backgroundColor: '#1A2E4A',
+    borderRadius: 8,
+    padding: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  medioSelectorTexto: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  mediosDropdown: {
+    backgroundColor: '#1A2E4A',
+    borderRadius: 8,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  medioItem: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a3e5a',
+  },
+  medioItemTexto: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  notaSinLimites: {
+    color: '#666',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  botonOfertar: {
     backgroundColor: '#E8593C',
     borderRadius: 8,
     padding: 16,
     alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
   },
   botonDeshabilitado: {
     opacity: 0.6,
   },
-  botonTexto: {
+  botonOfertarTexto: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
-  vendidoBox: {
-    backgroundColor: '#999',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  vendidoTexto: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
- restriccionBox: {
+  restriccionBox: {
     backgroundColor: '#ec6e5554',
     borderRadius: 10,
     padding: 16,

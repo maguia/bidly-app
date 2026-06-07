@@ -65,10 +65,26 @@ router.get('/', async (req, res) => {
         nombre: `Subasta #${s.identificador}`,
         martillero: s.martillero,
         ubicacion: s.ubicacion,
-        fecha: s.fecha,
+        fecha: s.fecha ? new Date(s.fecha).toISOString().split('T')[0] : null,
         hora: s.hora,
         categoriaRequerida: s.categoria,
-        estado: s.estado === 'abierta' ? 'en_vivo' : 'finalizado',
+        estado: (() => {
+          if (s.estado !== 'abierta') return 'finalizado';
+          
+          const ahora = new Date();
+          const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
+          
+          // Usar UTC para evitar el problema de zona horaria
+          const d = new Date(s.fecha);
+          const fechaSubasta = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+
+          console.log(`Subasta ${s.identificador} — fechaSubasta: ${fechaSubasta}, hoy: ${hoy}`);
+
+          if (fechaSubasta === hoy) return 'en_vivo';
+          if (fechaSubasta > hoy) return 'proximo';
+          return 'finalizado';
+        })(),
+
         itemsRestantes: s.itemsRestantes,
         accesoUsuario: {
           puedePujar,
@@ -98,7 +114,10 @@ router.get('/:id/catalogo', async (req, res) => {
                pr.descripcionCatalogo as nombre,
                ic.precioBase,
                ic.comision,
-               ic.subastado
+               ic.subastado,
+               (SELECT COUNT(*) FROM pujos p 
+                INNER JOIN asistentes a ON a.identificador = p.asistente
+                WHERE p.item = ic.identificador AND a.subasta = @subId) as tienePujas
         FROM itemsCatalogo ic
         INNER JOIN catalogos c ON c.identificador = ic.catalogo
         INNER JOIN productos pr ON pr.identificador = ic.producto
@@ -114,7 +133,9 @@ router.get('/:id/catalogo', async (req, res) => {
       nombre: i.nombre,
       precioBase: i.precioBase,
       comision: i.comision,
-      estado: i.subastado === 'si' ? 'vendido' : 'disponible'
+      estado: i.subastado === 'si' ? 'vendido' 
+            : i.tienePujas ? 'pujando' 
+            : 'disponible'
     })));
 
   } catch (err) {
@@ -138,7 +159,10 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
                ic.precioBase, ic.comision, ic.subastado,
                pr.descripcionCatalogo as nombre,
                pr.descripcionCompleta,
-               per.nombre as duenio
+               per.nombre as duenio,
+               (SELECT COUNT(*) FROM pujos p 
+                INNER JOIN asistentes a ON a.identificador = p.asistente
+                WHERE p.item = ic.identificador AND a.subasta = @subId) as tienePujas
         FROM itemsCatalogo ic
         INNER JOIN catalogos c ON c.identificador = ic.catalogo
         INNER JOIN productos pr ON pr.identificador = ic.producto
@@ -193,7 +217,9 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
       id: String(item.itemId),
       nombre: item.nombre,
       descripcion: item.descripcionCompleta,
-      estado: item.subastado === 'si' ? 'vendido' : 'disponible',
+      estado: item.subastado === 'si' ? 'vendido' 
+            : item.tienePujas > 0 ? 'pujando' 
+            : 'disponible',
       precioBase: esRegistrado ? item.precioBase : null,
       duenioActual: item.duenio,
       mejorOferta: esRegistrado ? mejorOferta : null,
