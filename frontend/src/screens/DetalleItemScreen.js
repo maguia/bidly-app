@@ -17,6 +17,12 @@ export default function DetalleItemScreen({ route, navigation }) {
   const [cargando, setCargando] = useState(true);
   const [monto, setMonto] = useState('');
   const [pujando, setPujando] = useState(false);
+
+  const [pujaActiva, setPujaActiva] = useState(null); // { pujaId, monto, expiraEn }
+  const [estadoPuja, setEstadoPuja] = useState(null); // 'esperando_confirmacion' | 'ganadora' | 'superada'
+  const [segundosRestantes, setSegundosRestantes] = useState(60);
+  const [factura, setFactura] = useState(null);
+
   const [medioSeleccionado, setMedioSeleccionado] = useState(null);
   const [mediosPago, setMediosPago] = useState([]);
   const [mostrarMedios, setMostrarMedios] = useState(false);
@@ -94,17 +100,19 @@ export default function DetalleItemScreen({ route, navigation }) {
     setPujando(true);
     try {
       const res = await subastasService.pujar(subastaId, itemId, montoNum, medioSeleccionado.id);
-      Alert.alert(
-        '✅ Puja enviada',
-        `Tu puja de $${montoNum.toLocaleString('es-AR')} fue registrada.`,
-        [{ text: 'OK', onPress: () => cargarDetalle() }]
-      );
+      const { pujaId, expiraEn } = res.data;
+      
+      setPujaActiva({ pujaId, monto: montoNum, expiraEn });
+      setEstadoPuja('esperando_confirmacion');
       setMonto('');
+      iniciarPolling(pujaId);
     } catch (error) {
       const codigo = error.response?.status;
       const datos = error.response?.data;
       if (codigo === 400) {
         Alert.alert('Oferta fuera de rango', `Mínimo: $${datos.rangoMinimo?.toLocaleString('es-AR')}\nMáximo: $${datos.rangoMaximo?.toLocaleString('es-AR')}`);
+      } else if (codigo === 402) {
+        Alert.alert('Fondos insuficientes', datos.mensaje);
       } else if (codigo === 423) {
         Alert.alert('Subasta no activa', 'Esta subasta no está abierta en este momento');
       } else {
@@ -122,6 +130,43 @@ export default function DetalleItemScreen({ route, navigation }) {
       </View>
     );
   }
+
+  const iniciarPolling = (pujaId) => {
+    let segundos = 20;
+    setSegundosRestantes(20);
+
+    const intervalo = setInterval(async () => {
+      segundos -= 1;
+      setSegundosRestantes(segundos);
+
+      try {
+        const res = await subastasService.estadoPuja(subastaId, itemId, pujaId);
+        const estado = res.data.estado;
+
+        if (estado === 'superada') {
+          clearInterval(intervalo);
+          setEstadoPuja('superada');
+          cargarDetalle();
+          return;
+        }
+      } catch {}
+
+      if (segundos <= 0) {
+        clearInterval(intervalo);
+        // Confirmar ganador
+        try {
+          const res = await subastasService.confirmarPuja(subastaId, itemId, pujaId);
+          setFactura(res.data.factura);
+          setEstadoPuja('ganadora');
+          cargarDetalle();
+        } catch (err) {
+          // Si falló es porque fue superada justo al final
+          setEstadoPuja('superada');
+          cargarDetalle();
+        }
+      }
+    }, 1000);
+  };
 
   const puedePublicar = user && subasta?.accesoUsuario?.puedePujar;
   const estadoColor = getEstadoColor(item?.estado);
@@ -442,6 +487,88 @@ export default function DetalleItemScreen({ route, navigation }) {
         )}
 
       </View>
+
+      {/* Modal: Puja aceptada - esperando confirmación */}
+        {estadoPuja === 'esperando_confirmacion' && pujaActiva && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalAceptada}>
+              <Text style={styles.modalIcono}>✓</Text>
+              <Text style={styles.modalTitulo}>¡Oferta recibida!</Text>
+              <Text style={styles.modalTexto}>
+                Tu oferta de{'\n'}
+                <Text style={styles.modalMonto}>${pujaActiva.monto?.toLocaleString('es-AR')}</Text>
+                {'\n'}fue aceptada. Esperamos {segundosRestantes}s{'\n'}para confirmar si ganaste.
+              </Text>
+              <View style={styles.modalBotonEsperando}>
+                <Text style={styles.modalBotonEsperandoTexto}>Esperando confirmación...</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Modal: Puja ganadora */}
+        {estadoPuja === 'ganadora' && pujaActiva && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalGanadora}>
+              <Text style={styles.modalIcono}>✓</Text>
+              <Text style={styles.modalTitulo}>¡Oferta ganadora!</Text>
+              <Text style={styles.modalTexto}>
+                Tu oferta fue la ganadora{'\n'}
+                Sos el nuevo dueño de:{'\n'}
+                <Text style={styles.modalNombreItem}>"{item?.nombre}"</Text>
+              </Text>
+
+              <TouchableOpacity
+                style={styles.modalBotonPrimario}
+                onPress={() => {
+                  setEstadoPuja(null);
+                  setPujaActiva(null);
+                  navigation.navigate('Factura', {
+                    factura,
+                    item,
+                    subasta
+                  });
+                }}
+              >
+                <Text style={styles.modalBotonPrimarioTexto}>Ver factura</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setEstadoPuja(null);
+                  setPujaActiva(null);
+                  setFactura(null);
+                  navigation.goBack();
+                }}
+              >
+                <Text style={styles.modalBotonSecundario}>Volver al catálogo</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Modal: Puja superada */}
+        {estadoPuja === 'superada' && pujaActiva && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalSuperada}>
+              <Text style={styles.modalIconoAlerta}>!</Text>
+              <Text style={styles.modalTituloSuperada}>¡Alguien superó tu oferta!</Text>
+              <Text style={styles.modalTextoSuperada}>
+                Otro postor ofreció más mientras esperabas. Podés volver a pujar antes de que cierre el ítem.
+              </Text>
+              <TouchableOpacity
+                style={styles.modalBotonVolverPujar}
+                onPress={() => { setEstadoPuja(null); setPujaActiva(null); }}
+              >
+                <Text style={styles.modalBotonVolverPujarTexto}>Volver a pujar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => navigation.goBack()}>
+                <Text style={styles.modalBotonAbandonar}>Abandonar este ítem</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
     </ScrollView>
   );
 }
@@ -791,5 +918,170 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     textDecorationLine: 'underline',
+  },
+
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    zIndex: 100,
+  },
+  modalAceptada: {
+    backgroundColor: '#E8593C',
+    borderRadius: 16,
+    padding: 30,
+    alignItems: 'center',
+    width: '100%',
+  },
+  modalGanadora: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 16,
+    padding: 30,
+    alignItems: 'center',
+    width: '100%',
+  },
+  modalSuperada: {
+    backgroundColor: '#1A2E4A',
+    borderRadius: 16,
+    padding: 30,
+    alignItems: 'center',
+    width: '100%',
+  },
+  modalIcono: {
+    fontSize: 48,
+    color: '#fff',
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  modalIconoAlerta: {
+    fontSize: 48,
+    color: '#C9973A',
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  modalTitulo: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalTituloSuperada: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalTexto: {
+    fontSize: 15,
+    color: '#fff',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 20,
+  },
+  modalTextoSuperada: {
+    fontSize: 14,
+    color: '#aaa',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  modalMonto: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  modalNombreItem: {
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  modalBotonEsperando: {
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.5)',
+    borderRadius: 8,
+    padding: 14,
+    width: '100%',
+    alignItems: 'center',
+  },
+  modalBotonEsperandoTexto: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalBotonPrimario: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 8,
+    padding: 14,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalBotonPrimarioTexto: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  modalBotonSecundario: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    textDecorationLine: 'underline',
+  },
+  modalBotonVolverPujar: {
+    backgroundColor: '#C9973A',
+    borderRadius: 8,
+    padding: 14,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalBotonVolverPujarTexto: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  modalBotonAbandonar: {
+    color: '#aaa',
+    fontSize: 14,
+    textDecorationLine: 'underline',
+  },
+
+  facturaBox: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 8,
+    padding: 14,
+    width: '100%',
+    marginBottom: 16,
+  },
+  facturaFila: {
+    color: '#fff',
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  facturaValor: {
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  facturaSeparador: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginVertical: 6,
+  },
+  facturaTotalValor: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: '#fff',
+  },
+  facturaEnvio: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
 });

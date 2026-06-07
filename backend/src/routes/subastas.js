@@ -408,15 +408,56 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       asisId = insertAsis.recordset[0].identificador;
     }
 
+    // Validar fondos del medio de pago
+    const medioRes = await pool.request()
+      .input('medioId', sql.VarChar, medioId)
+      .input('uid', sql.Int, req.user.id)
+      .query('SELECT * FROM mediosPago WHERE id = @medioId AND usuarioId = @uid');
+
+    if (!medioRes.recordset.length)
+      return res.status(403).json({ codigo: 403, mensaje: 'Medio de pago no válido' });
+
+    const medio = medioRes.recordset[0];
+
+    // Calcular fondos comprometidos en otras pujas activas
+    const comprometidoRes = await pool.request()
+      .input('uid', sql.Int, req.user.id)
+      .input('medioId', sql.VarChar, medioId)
+      .query(`
+        SELECT ISNULL(SUM(p.importe), 0) as total
+        FROM pujos p
+        INNER JOIN asistentes a ON a.identificador = p.asistente
+        WHERE a.cliente = @uid
+        AND p.medio_pago_id = @medioId
+        AND p.ganador = 'no'
+        AND p.item IN (
+          SELECT ic.identificador FROM itemsCatalogo ic WHERE ic.subastado = 'no'
+        )
+      `);
+
+    const comprometido = comprometidoRes.recordset[0].total;
+    const disponible = (medio.limiteDisponible || 0) - comprometido;
+
+    // Tarjetas de crédito/débito no tienen límite real, solo validamos cheque y cuenta
+    if (medio.tipo !== 'tarjeta_credito' && medio.tipo !== 'tarjeta_debito') {
+      if (monto > disponible) {
+        return res.status(402).json({
+          codigo: 402,
+          mensaje: `Fondos insuficientes. Disponible: $${disponible.toLocaleString('es-AR')}`
+        });
+      }
+    }
+
     // 6. Insertar la puja
     const pujaInsert = await pool.request()
       .input('asistente', sql.Int, asisId)
       .input('item', sql.Int, req.params.itemId)
       .input('importe', sql.Decimal(18, 2), monto)
+      .input('medioId', sql.VarChar, medioId)
       .query(`
-        INSERT INTO pujos (asistente, item, importe, ganador)
+        INSERT INTO pujos (asistente, item, importe, ganador, medio_pago_id)
         OUTPUT INSERTED.identificador
-        VALUES (@asistente, @item, @importe, 'no')
+        VALUES (@asistente, @item, @importe, 'no', @medioId)
       `);
 
     const pujaId = `PJ-${pujaInsert.recordset[0].identificador}`;
@@ -498,6 +539,238 @@ router.get('/:id/historial', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// GET /subastas/:id/catalogo/:itemId/pujas/:pujaId/estado
+router.get('/:id/catalogo/:itemId/pujas/:pujaId/estado', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const pujaIdNum = parseInt(req.params.pujaId.replace('PJ-', ''));
+
+    const pujaRes = await pool.request()
+      .input('pujaId', sql.Int, pujaIdNum)
+      .query('SELECT * FROM pujos WHERE identificador = @pujaId');
+
+    if (!pujaRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'Puja no encontrada' });
+
+    const puja = pujaRes.recordset[0];
+
+    // Ver si hay una puja mayor después de esta
+    const superadaRes = await pool.request()
+      .input('item', sql.Int, req.params.itemId)
+      .input('pujaId', sql.Int, pujaIdNum)
+      .input('importe', sql.Decimal(18,2), puja.importe)
+      .query(`
+        SELECT TOP 1 importe FROM pujos 
+        WHERE item = @item 
+        AND identificador > @pujaId
+        AND importe > @importe
+        ORDER BY identificador DESC
+      `);
+
+    const superada = superadaRes.recordset.length > 0;
+    const ganadora = puja.ganador === 'si';
+
+    res.json({
+      estado: ganadora ? 'ganadora' : superada ? 'superada' : 'esperando_confirmacion',
+      monto: puja.importe,
+      superadaPor: superada ? superadaRes.recordset[0].importe : null
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
+  }
+});
+
+// POST /subastas/:id/catalogo/:itemId/pujas/:pujaId/confirmar
+router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const pujaIdNum = parseInt(req.params.pujaId.replace('PJ-', ''));
+    const subastaId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+
+    console.log('Confirmando puja:', pujaIdNum, 'item:', itemId, 'subasta:', subastaId);
+
+    // Verificar que nadie pujó más después
+    const pujaRes = await pool.request()
+      .input('pujaId', sql.Int, pujaIdNum)
+      .query('SELECT * FROM pujos WHERE identificador = @pujaId');
+
+    console.log('Puja encontrada:', pujaRes.recordset);
+
+    if (!pujaRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'Puja no encontrada' });
+
+    const puja = pujaRes.recordset[0];
+
+    const superadaRes = await pool.request()
+      .input('item', sql.Int, itemId)
+      .input('pujaId', sql.Int, pujaIdNum)
+      .input('importe', sql.Decimal(18,2), puja.importe)
+      .query(`
+        SELECT TOP 1 identificador FROM pujos 
+        WHERE item = @item 
+        AND identificador > @pujaId
+        AND importe > @importe
+      `);
+
+    console.log('Superada:', superadaRes.recordset.length);
+
+    if (superadaRes.recordset.length)
+      return res.status(409).json({ codigo: 409, mensaje: 'La puja fue superada' });
+
+    // Marcar puja como ganadora
+    await pool.request()
+      .input('pujaId', sql.Int, pujaIdNum)
+      .query("UPDATE pujos SET ganador = 'si' WHERE identificador = @pujaId");
+
+    console.log('Puja marcada ganadora');
+
+    // Marcar ítem como vendido
+    await pool.request()
+      .input('itemId', sql.Int, itemId)
+      .query("UPDATE itemsCatalogo SET subastado = 'si' WHERE identificador = @itemId");
+
+    console.log('Item marcado vendido');
+
+    // Obtener datos del ítem para el registro
+    const itemRes = await pool.request()
+      .input('itemId', sql.Int, itemId)
+      .query(`
+        SELECT ic.precioBase, ic.comision, pr.duenio, pr.identificador as productoId
+        FROM itemsCatalogo ic
+        INNER JOIN productos pr ON pr.identificador = ic.producto
+        WHERE ic.identificador = @itemId
+      `);
+
+    console.log('Item data:', itemRes.recordset);
+
+    const item = itemRes.recordset[0];
+
+    // Obtener cliente del asistente
+    const asisRes = await pool.request()
+      .input('asisId', sql.Int, puja.asistente)
+      .query('SELECT cliente FROM asistentes WHERE identificador = @asisId');
+
+    console.log('Asistente data:', asisRes.recordset);
+
+    const clienteId = asisRes.recordset[0].cliente;
+
+    console.log('ClienteId:', clienteId);
+
+    // Registrar la venta
+    await pool.request()
+      .input('subasta', sql.Int, subastaId)
+      .input('duenio', sql.Int, item.duenio)
+      .input('producto', sql.Int, item.productoId)
+      .input('cliente', sql.Int, clienteId)
+      .input('importe', sql.Decimal(18,2), puja.importe)
+      .input('comision', sql.Decimal(18,2), item.comision)
+      .query(`
+        INSERT INTO registroDeSubasta (subasta, duenio, producto, cliente, importe, comision)
+        VALUES (@subasta, @duenio, @producto, @cliente, @importe, @comision)
+      `);
+
+    console.log('Venta registrada');
+
+    // Verificar si el cliente ya existe como dueño
+    const duenioExisteRes = await pool.request()
+      .input('clienteId', sql.Int, clienteId)
+      .query('SELECT identificador FROM duenios WHERE identificador = @clienteId');
+
+    if (!duenioExisteRes.recordset.length) {
+      // Insertar el cliente como dueño
+      await pool.request()
+        .input('clienteId', sql.Int, clienteId)
+        .query(`
+          INSERT INTO duenios (identificador, numeroPais, verificacionFinanciera, verificacionJudicial, calificacionRiesgo, verificador)
+          SELECT @clienteId, numeroPais, 'si', 'si', 5, 2
+          FROM clientes WHERE identificador = @clienteId
+        `);
+      console.log('Cliente insertado como dueño');
+    }
+
+    // Actualizar dueño del producto
+    await pool.request()
+      .input('clienteId', sql.Int, clienteId)
+      .input('productoId', sql.Int, item.productoId)
+      .query(`
+        UPDATE productos SET duenio = @clienteId 
+        WHERE identificador = @productoId
+      `);
+
+    console.log('Dueño actualizado');
+
+    res.json({
+      mensaje: 'Puja confirmada',
+      factura: {
+        pujaId: pujaIdNum,
+        subastaId,
+        itemId,
+        clienteId,
+        importe: puja.importe,
+        comision: item.comision,
+        total: puja.importe + item.comision,
+      }
+    });
+
+  } catch (err) {
+    console.error('ERROR EN CONFIRMAR:', err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
+  }
+});
+
+router.get('/:id/catalogo/:itemId/pujas/:pujaId/estado', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const pujaIdNum = parseInt(req.params.pujaId.replace('PJ-', ''));
+
+    const pujaRes = await pool.request()
+      .input('pujaId', sql.Int, pujaIdNum)
+      .query(`
+        SELECT p.*, a.cliente 
+        FROM pujos p
+        INNER JOIN asistentes a ON a.identificador = p.asistente
+        WHERE p.identificador = @pujaId
+      `);
+
+    if (!pujaRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'Puja no encontrada' });
+
+    const puja = pujaRes.recordset[0];
+
+    // Ver si hay una puja mayor de OTRO usuario después de esta
+    const superadaRes = await pool.request()
+      .input('item', sql.Int, req.params.itemId)
+      .input('pujaId', sql.Int, pujaIdNum)
+      .input('importe', sql.Decimal(18,2), puja.importe)
+      .input('cliente', sql.Int, req.user.id)
+      .query(`
+        SELECT TOP 1 p.importe FROM pujos p
+        INNER JOIN asistentes a ON a.identificador = p.asistente
+        WHERE p.item = @item 
+        AND p.identificador > @pujaId
+        AND p.importe > @importe
+        AND a.cliente != @cliente
+        ORDER BY p.identificador DESC
+      `);
+
+    const superada = superadaRes.recordset.length > 0;
+    const ganadora = puja.ganador === 'si';
+
+    res.json({
+      estado: ganadora ? 'ganadora' : superada ? 'superada' : 'esperando_confirmacion',
+      monto: puja.importe,
+      superadaPor: superada ? superadaRes.recordset[0].importe : null
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
   }
 });
 

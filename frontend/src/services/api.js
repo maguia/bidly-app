@@ -61,6 +61,12 @@ export const subastasService = {
 
   listarConFiltro: (query) =>
     api.get(`/subastas?${query}`),
+
+  estadoPuja: (subastaId, itemId, pujaId) =>
+    api.get(`/subastas/${subastaId}/catalogo/${itemId}/pujas/${pujaId}/estado`),
+
+  confirmarPuja: (subastaId, itemId, pujaId) =>
+    api.post(`/subastas/${subastaId}/catalogo/${itemId}/pujas/${pujaId}/confirmar`),
 };
 
 // ─── Usuarios ───────────────────────────────────────────

@@ -17,6 +17,7 @@ import SolicitudEnviadaScreen from './src/screens/SolicitudEnviadaScreen';
 import CompletarRegistroScreen from './src/screens/CompletarRegistroScreen';
 import MedioPagoScreen from './src/screens/MedioPagoScreen';
 import StreamingScreen from './src/screens/StreamingScreen';
+import FacturaScreen from './src/screens/FacturaScreen';
 
 const Stack = createStackNavigator();
 
@@ -96,6 +97,11 @@ export default function App() {
           <Stack.Screen
             name="Streaming"
             component={StreamingScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Factura"
+            component={FacturaScreen}
             options={{ headerShown: false }}
           />
 
