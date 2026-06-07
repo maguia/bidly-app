@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert, ScrollView
+  StyleSheet, ActivityIndicator, Alert, ScrollView, Image, 
+  FlatList, Dimensions, Modal, useWindowDimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { subastasService, usuarioService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+
+
 
 export default function DetalleItemScreen({ route, navigation }) {
   const { subastaId, itemId, subasta } = route.params;
@@ -17,6 +20,10 @@ export default function DetalleItemScreen({ route, navigation }) {
   const [medioSeleccionado, setMedioSeleccionado] = useState(null);
   const [mediosPago, setMediosPago] = useState([]);
   const [mostrarMedios, setMostrarMedios] = useState(false);
+  const [imagenActiva, setImagenActiva] = useState(0);
+  const [visorVisible, setVisorVisible] = useState(false);
+  const [imagenInicial, setImagenInicial] = useState(0);
+  const { width } = useWindowDimensions();
 
   useEffect(() => {
     cargarDetalle();
@@ -142,10 +149,100 @@ export default function DetalleItemScreen({ route, navigation }) {
 
       <View style={styles.body}>
 
-        {/* Imagen */}
-        <View style={styles.imagenBox}>
-          <Text style={styles.imagenTexto}>[ Imágenes del ítem · 6 fotos ]</Text>
-        </View>
+        {/* Carrusel de imágenes */}
+        {item?.imagenes?.length > 0 ? (
+          <View style={styles.carruselContainer}>
+            <FlatList
+              data={item.imagenes}
+              keyExtractor={(_, index) => String(index)}
+              horizontal
+              pagingEnabled
+              decelerationRate="fast"
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e) => {
+                const index = Math.round(
+                  e.nativeEvent.contentOffset.x / (width - 40)
+                );
+                setImagenActiva(index);
+              }}
+              getItemLayout={(_, index) => ({
+                length: width - 40,
+                offset: (width - 40) * index,
+                index,
+              })}
+              renderItem={({ item: url, index }) => (
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    setImagenInicial(index);
+                    setVisorVisible(true);
+                  }}
+                >
+                  <Image
+                    source={{ uri: url }}
+                    style={[styles.carruselImagen, { width: width - 40 }]}
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+              )}
+            />
+
+            {/* Indicadores */}
+            <View style={styles.carruselIndicadores}>
+              {item.imagenes.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.indicador,
+                    index === imagenActiva && styles.indicadorActivo
+                  ]}
+                />
+              ))}
+            </View>
+          </View>
+        ) : (
+          <View style={styles.imagenBox}>
+            <Text style={styles.imagenTexto}>[ Imágenes del ítem · 6 fotos ]</Text>
+          </View>
+        )}
+
+        {/* Visor pantalla completa */}
+        <Modal
+          visible={visorVisible}
+          transparent={true}
+          onRequestClose={() => setVisorVisible(false)}
+        >
+          <View style={styles.visorContainer}>
+            <TouchableOpacity
+              style={styles.visorCerrar}
+              onPress={() => setVisorVisible(false)}
+            >
+              <Text style={styles.visorCerrarTexto}>✕</Text>
+            </TouchableOpacity>
+
+            <FlatList
+              data={item?.imagenes || []}
+              keyExtractor={(_, index) => String(index)}
+              horizontal
+              pagingEnabled
+              decelerationRate="fast"
+              initialScrollIndex={imagenInicial}
+              getItemLayout={(_, index) => ({
+                length: Dimensions.get('window').width,
+                offset: Dimensions.get('window').width * index,
+                index,
+              })}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item: url }) => (
+                <Image
+                  source={{ uri: url }}
+                  style={styles.visorImagen}
+                  resizeMode="contain"
+                />
+              )}
+            />
+          </View>
+        </Modal>
 
         {/* Info básica */}
         <Text style={styles.nombre}>"{item?.nombre}" </Text>
@@ -395,7 +492,7 @@ const styles = StyleSheet.create({
   imagenBox: {
     backgroundColor: '#1A2E4A',
     borderRadius: 10,
-    height: 160,
+    height: 200,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -403,6 +500,32 @@ const styles = StyleSheet.create({
   imagenTexto: {
     color: '#aaa',
     fontSize: 13,
+  },
+  carruselContainer: {
+    marginBottom: 16,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  carruselImagen: {
+    width: Dimensions.get('window').width - 40,
+    height: 200,
+  },
+  carruselIndicadores: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    backgroundColor: '#1A2E4A',
+  },
+  indicador: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#aaa',
+  },
+  indicadorActivo: {
+    backgroundColor: '#C9973A',
+    width: 16,
   },
   nombre: {
     fontSize: 16,
@@ -501,6 +624,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 10,
     fontWeight: '600',
+  },
+
+  visorContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+  },
+  visorCerrar: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  visorCerrarTexto: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  visorImagen: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height,
   },
 
   historialScroll: {

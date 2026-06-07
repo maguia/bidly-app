@@ -107,10 +107,17 @@ const getEstadoColor = (estado) => {
         </Text>
       </View>
       <View style={styles.cardInfoRow}>
-        <Text style={styles.cardInfoTextoClaro}>{item.itemsRestantes} ítems restantes</Text>
+          <Text style={styles.cardInfoTextoClaro}>
+          {item.estado === 'proximo' 
+            ? `${item.itemsRestantes} ítems a subastar`
+            : item.estado === 'finalizado'
+            ? `${item.itemsRestantes} ítems restantes`
+            : `${item.itemsRestantes} ítems restantes`
+          }
+        </Text>
         <View style={styles.monedaBadge}>
           <Text style={styles.monedaTexto}>
-            $  {item.moneda === 'USD' ? 'Dólares' : 'Pesos'}
+            $ {item.moneda === 'USD' ? 'Dólares' : 'Pesos'}
           </Text>
         </View>
       </View>
@@ -118,10 +125,11 @@ const getEstadoColor = (estado) => {
       {/* Footer */}
       <View style={styles.cardFooter}>
         <View style={styles.cardFooterIzq}>
-          {/* Acceso */}
-          {(!user || !item.accesoUsuario.puedePujar) ? (
+          {(!user || !item.accesoUsuario.puedePujar || item.estado === 'finalizado') ? (
             <Text style={styles.bloqueado}>
-              ✕ {!user ? 'Iniciá sesión para pujar' : item.accesoUsuario.razonBloqueo}
+              ✕ {!user ? 'Iniciá sesión para pujar' 
+                : item.estado === 'finalizado' ? 'Subasta finalizada'
+                : item.accesoUsuario.razonBloqueo}
             </Text>
           ) : (
             <Text style={styles.pujarTexto}>✓ Podés pujar</Text>

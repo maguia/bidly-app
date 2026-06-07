@@ -140,7 +140,11 @@ router.get('/:id/catalogo', async (req, res) => {
                pr.descripcionCatalogo as nombre,
                ic.precioBase,
                ic.comision,
-               ic.subastado
+               ic.subastado,
+               (SELECT TOP 1 f.url 
+                FROM fotos f 
+                WHERE f.producto = ic.producto 
+                ORDER BY f.identificador ASC) as fotoPrincipal
         FROM itemsCatalogo ic
         INNER JOIN catalogos c ON c.identificador = ic.catalogo
         INNER JOIN productos pr ON pr.identificador = ic.producto
@@ -155,6 +159,7 @@ router.get('/:id/catalogo', async (req, res) => {
       id: String(i.itemId),
       nombre: i.nombre,
       precioBase: i.precioBase,
+      fotoPrincipal: i.fotoPrincipal || null,
       comision: i.comision,
       estado: i.subastado === 'si' ? 'vendido'
             : i.itemId === itemActualId ? 'pujando'
@@ -214,6 +219,19 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
 
     const pujos = pujosRes.recordset;
 
+    // Obtener fotos del producto
+    const fotosRes = await pool.request()
+      .input('itemId', sql.Int, req.params.itemId)
+      .query(`
+        SELECT f.url 
+        FROM fotos f
+        INNER JOIN itemsCatalogo ic ON ic.producto = f.producto
+        WHERE ic.identificador = @itemId
+        ORDER BY f.identificador ASC
+      `);
+
+    const fotos = fotosRes.recordset.map(f => f.url).filter(u => u);
+
     // Calcular mejor oferta y rango válido
     const mejorOferta = pujos.length ? pujos[0].monto : item.precioBase;
     const rangoMin = mejorOferta + item.precioBase * 0.01;
@@ -250,6 +268,7 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
             : item.tienePujas > 0 ? 'pujando' 
             : 'disponible',
       precioBase: esRegistrado ? item.precioBase : null,
+      imagenes: fotos,
       duenioActual: item.duenio,
       mejorOferta: esRegistrado ? mejorOferta : null,
       // Si es oro o platino no tiene límites

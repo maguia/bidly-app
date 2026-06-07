@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, useWindowDimensions , 
-  StyleSheet, ActivityIndicator, Alert, TextInput, Dimensions
+  StyleSheet, ActivityIndicator, Alert, TextInput, Image, Dimensions
 } from 'react-native';
 import { subastasService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -61,10 +61,18 @@ export default function CatalogoScreen({ route, navigation }) {
         subasta: subasta
       })}
     >
-      {/* Imagen placeholder */}
-      <View style={styles.cardImagen}>
-        <Text style={styles.cardImagenTexto}>🖼</Text>
-      </View>
+      {/* Imagen principal */}
+      {item.fotoPrincipal ? (
+        <Image
+          source={{ uri: item.fotoPrincipal }}
+          style={styles.cardImagen}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={styles.cardImagenPlaceholder}>
+          <Text style={styles.cardImagenTexto}>🖼</Text>
+        </View>
+      )}
 
       {/* Info */}
       <View style={styles.cardInfo}>
@@ -216,10 +224,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cardImagen: {
+    width: '100%',
+    height: 110,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+  },
+    cardImagenPlaceholder: {
+    width: '100%',
+    height: 110,
     backgroundColor: '#2a3e5a',
-    height: 100,
     justifyContent: 'center',
     alignItems: 'center',
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
   },
   cardImagenTexto: {
     fontSize: 40,
