@@ -7,19 +7,15 @@ const jwt = require('jsonwebtoken');
 const CATEGORIAS = ['comun', 'especial', 'plata', 'oro', 'platino'];
 
 // ─── GET /subastas ──────────────────────────────────────
-// Devuelve la lista de subastas con info de acceso del usuario
 router.get('/', async (req, res) => {
   const { fecha } = req.query;
   try {
     const pool = await getPool();
 
-    let nivelUser = 0; // invitado = nivel comun
-    
-    // Si hay token verificamos la categoría del usuario
+    let nivelUser = 0;
     const authHeader = req.headers.authorization;
     if (authHeader) {
       try {
-        const jwt = require('jsonwebtoken');
         const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'bidly_secret');
         const userRes = await pool.request()
           .input('id', sql.Int, decoded.id)
@@ -29,7 +25,6 @@ router.get('/', async (req, res) => {
       } catch {}
     }
 
-    // Traer todas las subastas con su subastador
     const request = pool.request();
     let whereClause = '';
 
@@ -78,24 +73,30 @@ router.get('/', async (req, res) => {
         fecha: s.fecha ? new Date(s.fecha).toISOString().split('T')[0] : null,
         hora: s.hora,
         categoriaRequerida: s.categoria,
-        moneda: s.moneda|| 'ARS',
+        moneda: s.moneda || 'ARS',
         estado: (() => {
-          if (s.estado !== 'abierta') return 'finalizado';
+          if (s.estado === 'cerrada') return 'finalizado';
           
           const ahora = new Date();
           const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
           
-          // Usar UTC para evitar el problema de zona horaria
           const d = new Date(s.fecha);
           const fechaSubasta = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
 
-          console.log(`Subasta ${s.identificador} — fechaSubasta: ${fechaSubasta}, hoy: ${hoy}`);
+          if (fechaSubasta !== hoy) {
+            return fechaSubasta > hoy ? 'proximo' : 'finalizado';
+          }
 
-          if (fechaSubasta === hoy) return 'en_vivo';
-          if (fechaSubasta > hoy) return 'proximo';
-          return 'finalizado';
+          // Es hoy — verificar la hora
+          // Extraer hora correctamente del objeto Date
+          const horaDate = new Date(s.hora);
+          const horaSubasta = `${String(horaDate.getUTCHours()).padStart(2,'0')}:${String(horaDate.getUTCMinutes()).padStart(2,'0')}:00`;
+          const horaActual = `${String(ahora.getHours()).padStart(2,'0')}:${String(ahora.getMinutes()).padStart(2,'0')}:00`;
+
+          console.log(`Subasta ${s.identificador} — horaSubasta: ${horaSubasta}, horaActual: ${horaActual}`);
+
+          return horaActual >= horaSubasta ? 'en_vivo' : 'proximo';
         })(),
-
         itemsRestantes: s.itemsRestantes,
         accesoUsuario: {
           puedePujar,
@@ -113,12 +114,11 @@ router.get('/', async (req, res) => {
 });
 
 // ─── GET /subastas/:id/catalogo ─────────────────────────
-// Devuelve los ítems del catálogo de una subasta
 router.get('/:id/catalogo', async (req, res) => {
   try {
     const pool = await getPool();
 
-    // Obtener el ítem con la puja más reciente (el que se está subastando ahora)
+    // Obtener el ítem con la puja más reciente
     const itemActualRes = await pool.request()
       .input('subId', sql.Int, req.params.id)
       .query(`
@@ -141,6 +141,7 @@ router.get('/:id/catalogo', async (req, res) => {
                ic.precioBase,
                ic.comision,
                ic.subastado,
+               ic.enSubasta,
                (SELECT TOP 1 f.url 
                 FROM fotos f 
                 WHERE f.producto = ic.producto 
@@ -162,7 +163,7 @@ router.get('/:id/catalogo', async (req, res) => {
       fotoPrincipal: i.fotoPrincipal || null,
       comision: i.comision,
       estado: i.subastado === 'si' ? 'vendido'
-            : i.itemId === itemActualId ? 'pujando'
+            : (i.enSubasta || i.itemId === itemActualId) ? 'pujando'
             : 'disponible'
     })));
 
@@ -173,18 +174,16 @@ router.get('/:id/catalogo', async (req, res) => {
 });
 
 // ─── GET /subastas/:id/catalogo/:itemId ─────────────────
-// Devuelve el detalle de un ítem con historial de pujas y rango válido
 router.get('/:id/catalogo/:itemId', async (req, res) => {
   try {
     const pool = await getPool();
 
-    // Detalle del ítem
     const itemRes = await pool.request()
       .input('itemId', sql.Int, req.params.itemId)
       .input('subId', sql.Int, req.params.id)
       .query(`
         SELECT ic.identificador as itemId,
-               ic.precioBase, ic.comision, ic.subastado,
+               ic.precioBase, ic.comision, ic.subastado, ic.enSubasta,
                pr.descripcionCatalogo as nombre,
                pr.descripcionCompleta,
                per.nombre as duenio,
@@ -205,7 +204,6 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
 
     const item = itemRes.recordset[0];
 
-    // Historial de pujas del ítem
     const pujosRes = await pool.request()
       .input('itemId', sql.Int, req.params.itemId)
       .query(`
@@ -219,7 +217,6 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
 
     const pujos = pujosRes.recordset;
 
-    // Obtener fotos del producto
     const fotosRes = await pool.request()
       .input('itemId', sql.Int, req.params.itemId)
       .query(`
@@ -232,24 +229,17 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
 
     const fotos = fotosRes.recordset.map(f => f.url).filter(u => u);
 
-    // Calcular mejor oferta y rango válido
     const mejorOferta = pujos.length ? pujos[0].monto : item.precioBase;
     const rangoMin = mejorOferta + item.precioBase * 0.01;
     const rangoMax = mejorOferta + item.precioBase * 0.20;
 
-    console.log(`Ítem ${item.itemId} — mejorOferta: ${mejorOferta}, rangoMin: ${rangoMin}, rangoMax: ${rangoMax}`);
-
-    // Ver si hay usuario logueado
-    let sinLimite = false;
-    let esRegistrado = false;
-
-    // Obtener categoría de la subasta para determinar si aplican límites
     const subCatRes = await pool.request()
       .input('subId', sql.Int, req.params.id)
       .query('SELECT categoria FROM subastas WHERE identificador = @subId');
-    
+
     const categoriaSubasta = subCatRes.recordset[0]?.categoria;
-    sinLimite = ['oro', 'platino'].includes(categoriaSubasta);
+    let sinLimite = ['oro', 'platino'].includes(categoriaSubasta);
+    let esRegistrado = false;
 
     const authHeader = req.headers.authorization;
     if (authHeader) {
@@ -259,19 +249,17 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
       } catch {}
     }
 
-
     res.json({
       id: String(item.itemId),
       nombre: item.nombre,
       descripcion: item.descripcionCompleta,
-      estado: item.subastado === 'si' ? 'vendido' 
-            : item.tienePujas > 0 ? 'pujando' 
+      estado: item.subastado === 'si' ? 'vendido'
+            : (item.enSubasta || item.tienePujas > 0) ? 'pujando'
             : 'disponible',
       precioBase: esRegistrado ? item.precioBase : null,
       imagenes: fotos,
       duenioActual: item.duenio,
       mejorOferta: esRegistrado ? mejorOferta : null,
-      // Si es oro o platino no tiene límites
       rangoMinimo: sinLimite ? null : (esRegistrado ? rangoMin : null),
       rangoMaximo: sinLimite ? null : (esRegistrado ? rangoMax : null),
       sinLimitesPuja: sinLimite,
@@ -290,7 +278,6 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
 });
 
 // ─── POST /subastas/:id/catalogo/:itemId/pujas ──────────
-// El usuario hace una puja en un ítem
 router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
   const { monto, medioId } = req.body;
 
@@ -300,20 +287,19 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
 
   try {
     const pool = await getPool();
+    const subastaId = parseInt(req.params.id);
 
-    // 1. Verificar que la subasta esté abierta
     const subRes = await pool.request()
-      .input('id', sql.Int, req.params.id)
+      .input('id', sql.Int, subastaId)
       .query('SELECT estado, categoria FROM subastas WHERE identificador = @id');
 
     if (!subRes.recordset.length || subRes.recordset[0].estado !== 'abierta') {
       return res.status(423).json({ codigo: 423, mensaje: 'Subasta no activa' });
     }
 
-    // 2. Verificar que el ítem exista y no esté vendido
     const itemRes = await pool.request()
       .input('itemId', sql.Int, req.params.itemId)
-      .input('subId', sql.Int, req.params.id)
+      .input('subId', sql.Int, subastaId)
       .query(`
         SELECT ic.identificador, ic.precioBase, ic.subastado
         FROM itemsCatalogo ic
@@ -331,7 +317,6 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       return res.status(423).json({ codigo: 423, mensaje: 'Ítem ya vendido' });
     }
 
-    // 3. Obtener la última puja para calcular el rango
     const ultimaRes = await pool.request()
       .input('itemId', sql.Int, req.params.itemId)
       .query(`
@@ -348,16 +333,9 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
     const rangoMin = base + item.precioBase * 0.01;
     const rangoMax = base + item.precioBase * 0.20;
 
-    // 4. Verificar categoría del usuario (oro y platino no tienen límites)
-    const catRes = await pool.request()
-      .input('uid', sql.Int, req.user.id)
-      .query('SELECT categoria FROM clientes WHERE identificador = @uid');
-
-    // Límites según categoría de la SUBASTA, no del usuario
     const sinLimite = ['oro', 'platino'].includes(subRes.recordset[0].categoria);
 
     if (sinLimite) {
-      // Oro y platino: solo tiene que superar la mejor oferta actual
       if (monto <= base) {
         return res.status(400).json({
           codigo: 400,
@@ -366,7 +344,6 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
         });
       }
     } else {
-      // Resto de categorías: tiene que estar dentro del rango
       if (monto < rangoMin || monto > rangoMax) {
         return res.status(400).json({
           codigo: 400,
@@ -377,10 +354,9 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       }
     }
 
-    // 5. Verificar o crear asistente (el usuario en esa subasta)
     let asisRes = await pool.request()
       .input('cli', sql.Int, req.user.id)
-      .input('sub', sql.Int, req.params.id)
+      .input('sub', sql.Int, subastaId)
       .query('SELECT identificador FROM asistentes WHERE cliente = @cli AND subasta = @sub');
 
     let asisId;
@@ -388,7 +364,7 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       asisId = asisRes.recordset[0].identificador;
     } else {
       const maxPostor = await pool.request()
-        .input('sub', sql.Int, req.params.id)
+        .input('sub', sql.Int, subastaId)
         .query(`
           SELECT ISNULL(MAX(numeroPostor), 0) + 1 as siguiente 
           FROM asistentes 
@@ -398,7 +374,7 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       const insertAsis = await pool.request()
         .input('nPostor', sql.Int, maxPostor.recordset[0].siguiente)
         .input('cli', sql.Int, req.user.id)
-        .input('sub', sql.Int, req.params.id)
+        .input('sub', sql.Int, subastaId)
         .query(`
           INSERT INTO asistentes (numeroPostor, cliente, subasta)
           OUTPUT INSERTED.identificador
@@ -408,7 +384,6 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       asisId = insertAsis.recordset[0].identificador;
     }
 
-    // Validar fondos del medio de pago
     const medioRes = await pool.request()
       .input('medioId', sql.VarChar, medioId)
       .input('uid', sql.Int, req.user.id)
@@ -419,7 +394,6 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
 
     const medio = medioRes.recordset[0];
 
-    // Calcular fondos comprometidos en otras pujas activas
     const comprometidoRes = await pool.request()
       .input('uid', sql.Int, req.user.id)
       .input('medioId', sql.VarChar, medioId)
@@ -438,7 +412,6 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
     const comprometido = comprometidoRes.recordset[0].total;
     const disponible = (medio.limiteDisponible || 0) - comprometido;
 
-    // Tarjetas de crédito/débito no tienen límite real, solo validamos cheque y cuenta
     if (medio.tipo !== 'tarjeta_credito' && medio.tipo !== 'tarjeta_debito') {
       if (monto > disponible) {
         return res.status(402).json({
@@ -448,7 +421,6 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       }
     }
 
-    // 6. Insertar la puja
     const pujaInsert = await pool.request()
       .input('asistente', sql.Int, asisId)
       .input('item', sql.Int, req.params.itemId)
@@ -463,7 +435,10 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
     const pujaId = `PJ-${pujaInsert.recordset[0].identificador}`;
     const expira = new Date(Date.now() + 60000).toISOString();
 
-    // Evaluar si corresponde subir de categoría
+    // Notificar al motor que hubo una puja
+    const { reiniciarTimerItem } = require('../motorSubastas');
+    reiniciarTimerItem(subastaId, parseInt(req.params.itemId), item.precioBase);
+
     await evaluarCategoria(req.user.id);
 
     res.json({
@@ -479,12 +454,10 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
 });
 
 // ─── GET /subastas/:id/historial ────────────────────────
-// Cualquier usuario puede ver la evolución de una subasta
 router.get('/:id/historial', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool();
 
-    // Verificar que la subasta existe
     const subRes = await pool.request()
       .input('id', sql.Int, req.params.id)
       .query('SELECT * FROM subastas WHERE identificador = @id');
@@ -493,7 +466,6 @@ router.get('/:id/historial', authMiddleware, async (req, res) => {
       return res.status(404).json({ codigo: 404, mensaje: 'Subasta no encontrada' });
     }
 
-    // Traer todos los movimientos de todas las pujas de esa subasta
     const result = await pool.request()
       .input('subId', sql.Int, req.params.id)
       .query(`
@@ -513,7 +485,6 @@ router.get('/:id/historial', authMiddleware, async (req, res) => {
         ORDER BY ic.identificador, p.identificador ASC
       `);
 
-    // Agrupar por ítem
     const itemsMap = {};
     result.recordset.forEach(row => {
       if (!itemsMap[row.itemId]) {
@@ -542,188 +513,7 @@ router.get('/:id/historial', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /subastas/:id/catalogo/:itemId/pujas/:pujaId/estado
-router.get('/:id/catalogo/:itemId/pujas/:pujaId/estado', authMiddleware, async (req, res) => {
-  try {
-    const pool = await getPool();
-    const pujaIdNum = parseInt(req.params.pujaId.replace('PJ-', ''));
-
-    const pujaRes = await pool.request()
-      .input('pujaId', sql.Int, pujaIdNum)
-      .query('SELECT * FROM pujos WHERE identificador = @pujaId');
-
-    if (!pujaRes.recordset.length)
-      return res.status(404).json({ codigo: 404, mensaje: 'Puja no encontrada' });
-
-    const puja = pujaRes.recordset[0];
-
-    // Ver si hay una puja mayor después de esta
-    const superadaRes = await pool.request()
-      .input('item', sql.Int, req.params.itemId)
-      .input('pujaId', sql.Int, pujaIdNum)
-      .input('importe', sql.Decimal(18,2), puja.importe)
-      .query(`
-        SELECT TOP 1 importe FROM pujos 
-        WHERE item = @item 
-        AND identificador > @pujaId
-        AND importe > @importe
-        ORDER BY identificador DESC
-      `);
-
-    const superada = superadaRes.recordset.length > 0;
-    const ganadora = puja.ganador === 'si';
-
-    res.json({
-      estado: ganadora ? 'ganadora' : superada ? 'superada' : 'esperando_confirmacion',
-      monto: puja.importe,
-      superadaPor: superada ? superadaRes.recordset[0].importe : null
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
-  }
-});
-
-// POST /subastas/:id/catalogo/:itemId/pujas/:pujaId/confirmar
-router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, async (req, res) => {
-  try {
-    const pool = await getPool();
-    const pujaIdNum = parseInt(req.params.pujaId.replace('PJ-', ''));
-    const subastaId = parseInt(req.params.id);
-    const itemId = parseInt(req.params.itemId);
-
-    console.log('Confirmando puja:', pujaIdNum, 'item:', itemId, 'subasta:', subastaId);
-
-    // Verificar que nadie pujó más después
-    const pujaRes = await pool.request()
-      .input('pujaId', sql.Int, pujaIdNum)
-      .query('SELECT * FROM pujos WHERE identificador = @pujaId');
-
-    console.log('Puja encontrada:', pujaRes.recordset);
-
-    if (!pujaRes.recordset.length)
-      return res.status(404).json({ codigo: 404, mensaje: 'Puja no encontrada' });
-
-    const puja = pujaRes.recordset[0];
-
-    const superadaRes = await pool.request()
-      .input('item', sql.Int, itemId)
-      .input('pujaId', sql.Int, pujaIdNum)
-      .input('importe', sql.Decimal(18,2), puja.importe)
-      .query(`
-        SELECT TOP 1 identificador FROM pujos 
-        WHERE item = @item 
-        AND identificador > @pujaId
-        AND importe > @importe
-      `);
-
-    console.log('Superada:', superadaRes.recordset.length);
-
-    if (superadaRes.recordset.length)
-      return res.status(409).json({ codigo: 409, mensaje: 'La puja fue superada' });
-
-    // Marcar puja como ganadora
-    await pool.request()
-      .input('pujaId', sql.Int, pujaIdNum)
-      .query("UPDATE pujos SET ganador = 'si' WHERE identificador = @pujaId");
-
-    console.log('Puja marcada ganadora');
-
-    // Marcar ítem como vendido
-    await pool.request()
-      .input('itemId', sql.Int, itemId)
-      .query("UPDATE itemsCatalogo SET subastado = 'si' WHERE identificador = @itemId");
-
-    console.log('Item marcado vendido');
-
-    // Obtener datos del ítem para el registro
-    const itemRes = await pool.request()
-      .input('itemId', sql.Int, itemId)
-      .query(`
-        SELECT ic.precioBase, ic.comision, pr.duenio, pr.identificador as productoId
-        FROM itemsCatalogo ic
-        INNER JOIN productos pr ON pr.identificador = ic.producto
-        WHERE ic.identificador = @itemId
-      `);
-
-    console.log('Item data:', itemRes.recordset);
-
-    const item = itemRes.recordset[0];
-
-    // Obtener cliente del asistente
-    const asisRes = await pool.request()
-      .input('asisId', sql.Int, puja.asistente)
-      .query('SELECT cliente FROM asistentes WHERE identificador = @asisId');
-
-    console.log('Asistente data:', asisRes.recordset);
-
-    const clienteId = asisRes.recordset[0].cliente;
-
-    console.log('ClienteId:', clienteId);
-
-    // Registrar la venta
-    await pool.request()
-      .input('subasta', sql.Int, subastaId)
-      .input('duenio', sql.Int, item.duenio)
-      .input('producto', sql.Int, item.productoId)
-      .input('cliente', sql.Int, clienteId)
-      .input('importe', sql.Decimal(18,2), puja.importe)
-      .input('comision', sql.Decimal(18,2), item.comision)
-      .query(`
-        INSERT INTO registroDeSubasta (subasta, duenio, producto, cliente, importe, comision)
-        VALUES (@subasta, @duenio, @producto, @cliente, @importe, @comision)
-      `);
-
-    console.log('Venta registrada');
-
-    // Verificar si el cliente ya existe como dueño
-    const duenioExisteRes = await pool.request()
-      .input('clienteId', sql.Int, clienteId)
-      .query('SELECT identificador FROM duenios WHERE identificador = @clienteId');
-
-    if (!duenioExisteRes.recordset.length) {
-      // Insertar el cliente como dueño
-      await pool.request()
-        .input('clienteId', sql.Int, clienteId)
-        .query(`
-          INSERT INTO duenios (identificador, numeroPais, verificacionFinanciera, verificacionJudicial, calificacionRiesgo, verificador)
-          SELECT @clienteId, numeroPais, 'si', 'si', 5, 2
-          FROM clientes WHERE identificador = @clienteId
-        `);
-      console.log('Cliente insertado como dueño');
-    }
-
-    // Actualizar dueño del producto
-    await pool.request()
-      .input('clienteId', sql.Int, clienteId)
-      .input('productoId', sql.Int, item.productoId)
-      .query(`
-        UPDATE productos SET duenio = @clienteId 
-        WHERE identificador = @productoId
-      `);
-
-    console.log('Dueño actualizado');
-
-    res.json({
-      mensaje: 'Puja confirmada',
-      factura: {
-        pujaId: pujaIdNum,
-        subastaId,
-        itemId,
-        clienteId,
-        importe: puja.importe,
-        comision: item.comision,
-        total: puja.importe + item.comision,
-      }
-    });
-
-  } catch (err) {
-    console.error('ERROR EN CONFIRMAR:', err);
-    res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
-  }
-});
-
+// ─── GET /subastas/:id/catalogo/:itemId/pujas/:pujaId/estado ─────
 router.get('/:id/catalogo/:itemId/pujas/:pujaId/estado', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool();
@@ -743,7 +533,6 @@ router.get('/:id/catalogo/:itemId/pujas/:pujaId/estado', authMiddleware, async (
 
     const puja = pujaRes.recordset[0];
 
-    // Ver si hay una puja mayor de OTRO usuario después de esta
     const superadaRes = await pool.request()
       .input('item', sql.Int, req.params.itemId)
       .input('pujaId', sql.Int, pujaIdNum)
@@ -770,6 +559,112 @@ router.get('/:id/catalogo/:itemId/pujas/:pujaId/estado', authMiddleware, async (
 
   } catch (err) {
     console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
+  }
+});
+
+// ─── POST /subastas/:id/catalogo/:itemId/pujas/:pujaId/confirmar ──
+router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const pujaIdNum = parseInt(req.params.pujaId.replace('PJ-', ''));
+    const subastaId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+
+    const pujaRes = await pool.request()
+      .input('pujaId', sql.Int, pujaIdNum)
+      .query('SELECT * FROM pujos WHERE identificador = @pujaId');
+
+    if (!pujaRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'Puja no encontrada' });
+
+    const puja = pujaRes.recordset[0];
+
+    const superadaRes = await pool.request()
+      .input('item', sql.Int, itemId)
+      .input('pujaId', sql.Int, pujaIdNum)
+      .input('importe', sql.Decimal(18,2), puja.importe)
+      .query(`
+        SELECT TOP 1 identificador FROM pujos 
+        WHERE item = @item 
+        AND identificador > @pujaId
+        AND importe > @importe
+      `);
+
+    if (superadaRes.recordset.length)
+      return res.status(409).json({ codigo: 409, mensaje: 'La puja fue superada' });
+
+    await pool.request()
+      .input('pujaId', sql.Int, pujaIdNum)
+      .query("UPDATE pujos SET ganador = 'si' WHERE identificador = @pujaId");
+
+    await pool.request()
+      .input('itemId', sql.Int, itemId)
+      .query("UPDATE itemsCatalogo SET subastado = 'si', enSubasta = 0 WHERE identificador = @itemId");
+
+    const itemRes = await pool.request()
+      .input('itemId', sql.Int, itemId)
+      .query(`
+        SELECT ic.precioBase, ic.comision, pr.duenio, pr.identificador as productoId
+        FROM itemsCatalogo ic
+        INNER JOIN productos pr ON pr.identificador = ic.producto
+        WHERE ic.identificador = @itemId
+      `);
+
+    const item = itemRes.recordset[0];
+
+    const asisRes = await pool.request()
+      .input('asisId', sql.Int, puja.asistente)
+      .query('SELECT cliente FROM asistentes WHERE identificador = @asisId');
+
+    const clienteId = asisRes.recordset[0].cliente;
+
+    await pool.request()
+      .input('subasta', sql.Int, subastaId)
+      .input('duenio', sql.Int, item.duenio)
+      .input('producto', sql.Int, item.productoId)
+      .input('cliente', sql.Int, clienteId)
+      .input('importe', sql.Decimal(18,2), puja.importe)
+      .input('comision', sql.Decimal(18,2), item.comision)
+      .query(`
+        INSERT INTO registroDeSubasta (subasta, duenio, producto, cliente, importe, comision)
+        VALUES (@subasta, @duenio, @producto, @cliente, @importe, @comision)
+      `);
+
+    const duenioExisteRes = await pool.request()
+      .input('clienteId', sql.Int, clienteId)
+      .query('SELECT identificador FROM duenios WHERE identificador = @clienteId');
+
+    if (!duenioExisteRes.recordset.length) {
+      await pool.request()
+        .input('clienteId', sql.Int, clienteId)
+        .query(`
+          INSERT INTO duenios (identificador, numeroPais, verificacionFinanciera, verificacionJudicial, calificacionRiesgo, verificador)
+          SELECT @clienteId, numeroPais, 'si', 'si', 5, 2
+          FROM clientes WHERE identificador = @clienteId
+        `);
+    }
+
+    await pool.request()
+      .input('clienteId', sql.Int, clienteId)
+      .input('productoId', sql.Int, item.productoId)
+      .query('UPDATE productos SET duenio = @clienteId WHERE identificador = @productoId');
+
+    res.json({
+      mensaje: 'Puja confirmada',
+      factura: {
+        pujaId: pujaIdNum,
+        subastaId,
+        itemId,
+        clienteId,
+        importe: puja.importe,
+        comision: item.comision,
+        total: puja.importe + item.comision,
+      }
+    });
+
+  } catch (err) {
+    console.error('ERROR EN CONFIRMAR:', err);
     res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
   }
 });

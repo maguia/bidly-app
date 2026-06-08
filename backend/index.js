@@ -27,3 +27,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
+
+const { iniciarMotor } = require('./src/motorSubastas');
+
+// Iniciar motor de subastas
+iniciarMotor();

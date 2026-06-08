@@ -20,6 +20,14 @@ export default function CatalogoScreen({ route, navigation }) {
 
   useEffect(() => {
     cargarCatalogo();
+    const intervalo = setInterval(async () => {
+      try {
+        const res = await subastasService.catalogo(subasta.id);
+        setItems(res.data);
+        setItemsFiltrados(res.data);
+      } catch {}
+    }, 5000);
+    return () => clearInterval(intervalo);
   }, []);
 
   useEffect(() => {

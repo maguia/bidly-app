@@ -28,11 +28,35 @@ export default function HomeScreen({ navigation }) {
     cargarSubastas();
   }, [filtro, fechaSeleccionada]);
 
+  // Polling cada 10 segundos para actualizar estados en tiempo real
+  useEffect(() => {
+    const intervalo = setInterval(async () => {
+      try {
+        if (filtro === 'hoy') {
+          const ahora = new Date();
+          const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
+          const res = await subastasService.listarConFiltro(`fecha=${hoy}`);
+          setSubastas(res.data);
+        } else if (filtro === 'fecha' && fechaSeleccionada) {
+          const res = await subastasService.listarConFiltro(`fecha=${fechaSeleccionada}`);
+          setSubastas(res.data);
+        } else {
+          const res = await subastasService.listar();
+          setSubastas(res.data);
+        }
+      } catch {
+        // Servidor caído — no hacer nada, mantener los datos actuales
+      }
+    }, 10000);
+    return () => clearInterval(intervalo);
+  }, [filtro, fechaSeleccionada]);
+
  const cargarSubastas = async () => {
     setCargando(true);
     try {
       let url = '/subastas';
-      const hoy = new Date().toISOString().split('T')[0];
+      const ahora = new Date();
+      const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
       
       if (filtro === 'hoy') {
         const res = await subastasService.listarConFiltro(`fecha=${hoy}`);
