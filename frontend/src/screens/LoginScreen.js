@@ -23,7 +23,7 @@ export default function LoginScreen({ navigation }) {
     setCargando(true);
     try {
       await login(email, password);
-      navigation.replace('Home');
+      navigation.replace('MainTabs');
     } catch (error) {
       const codigo = error.response?.status;
       if (codigo === 401) {
@@ -37,10 +37,11 @@ export default function LoginScreen({ navigation }) {
       setCargando(false);
     }
   };
+  
   const handleInvitado = async () => {
     // Limpiar cualquier sesión guardada antes de entrar como invitado
     await logout();
-    navigation.navigate('Home');
+    navigation.navigate('MainTabs');
   };
 
   return (

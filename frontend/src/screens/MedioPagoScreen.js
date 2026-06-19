@@ -103,10 +103,8 @@ export default function MedioPagoScreen({ navigation }) {
       });
       console.log('Medio de pago guardado:', resultado.data);
 
-             
-
       if (navegar) {
-        navigation.replace('Home');
+        navigation.replace('MainTabs');
       } else {
         resetCampos();
         setTipo('Tarjeta de crédito');
@@ -127,8 +125,6 @@ export default function MedioPagoScreen({ navigation }) {
       setCargando(false);
     }
   };
-
-   
 
   const renderSelectorMoneda = () => (
     <>

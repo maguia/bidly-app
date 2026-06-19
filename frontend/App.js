@@ -6,6 +6,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { AuthProvider } from './src/context/AuthContext';
 
+// Importar Pantallas
 import SplashScreen from './src/screens/SplashScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -18,6 +19,13 @@ import CompletarRegistroScreen from './src/screens/CompletarRegistroScreen';
 import MedioPagoScreen from './src/screens/MedioPagoScreen';
 import StreamingScreen from './src/screens/StreamingScreen';
 import FacturaScreen from './src/screens/FacturaScreen';
+import PerfilScreen from './src/screens/PerfilScreen';
+import NotificacionesScreen from './src/screens/NotificacionesScreen';
+import HistorialScreen from './src/screens/HistorialScreen';
+
+
+// Importar el Tab Navigator (¡Solo una vez!)
+import MainTabNavigator from './navigation/MainTabNavigator';
 
 const Stack = createStackNavigator();
 
@@ -40,7 +48,7 @@ export default function App() {
               headerStyle: { backgroundColor: '#1A2E4A' },
               headerTintColor: '#C9973A',
            }}
-                    />
+          />
           <Stack.Screen
             name="Registro"
             component={RegistroScreen}
@@ -91,6 +99,17 @@ export default function App() {
               headerTintColor: '#C9973A',
             }}
           />
+          
+          {/* Navegación principal con pestañas (Bottom Tabs) */}
+          <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+            
+          
+          <Stack.Screen name="Notificaciones" component={NotificacionesScreen} />
+
+          <Stack.Screen name="Historial" component={HistorialScreen} />
+
+          
+          {/* Pantallas secundarias */}
           <Stack.Screen name="Home" component={HomeScreen} />
           <Stack.Screen name="Catalogo" component={CatalogoScreen} />
           <Stack.Screen name="DetalleItem" component={DetalleItemScreen} />
