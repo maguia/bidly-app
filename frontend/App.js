@@ -9,7 +9,7 @@ import { AuthProvider } from './src/context/AuthContext';
 // Importar Pantallas
 import SplashScreen from './src/screens/SplashScreen';
 import LoginScreen from './src/screens/LoginScreen';
-import HomeScreen from './src/screens/HomeScreen';
+
 import CatalogoScreen from './src/screens/CatalogoScreen';
 import DetalleItemScreen from './src/screens/DetalleItemScreen';
 import RecuperarPasswordScreen from './src/screens/RecuperarPasswordScreen';
@@ -23,7 +23,7 @@ import PerfilScreen from './src/screens/PerfilScreen';
 import NotificacionesScreen from './src/screens/NotificacionesScreen';
 import HistorialScreen from './src/screens/HistorialScreen';
 import DetallePujaScreen from './src/screens/DetallePujaScreen';
-
+import DeudasScreen from './src/screens/DeudasScreen';
 
 // Importar el Tab Navigator (¡Solo una vez!)
 import MainTabNavigator from './navigation/MainTabNavigator';
@@ -111,10 +111,10 @@ export default function App() {
 
            <Stack.Screen name="DetallePuja" component={DetallePujaScreen} />
 
-
+          <Stack.Screen name="Deudas" component={DeudasScreen} />
           
           {/* Pantallas secundarias */}
-          <Stack.Screen name="Home" component={HomeScreen} />
+          
           <Stack.Screen name="Catalogo" component={CatalogoScreen} />
           <Stack.Screen name="DetalleItem" component={DetalleItemScreen} />
           <Stack.Screen

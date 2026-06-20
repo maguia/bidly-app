@@ -52,25 +52,21 @@ router.get('/me', authMiddleware, async (req, res) => {
 router.get('/me/verificacion', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool();
+    const { usuarioEsValido } = require('../categorias');
 
     const result = await pool.request()
       .input('id', sql.Int, req.user.id)
-      .query(`
-        SELECT c.admitido
-        FROM clientes c
-        WHERE c.identificador = @id
-      `);
+      .query(`SELECT c.admitido FROM clientes c WHERE c.identificador = @id`);
 
     const razones = [];
-
     if (!result.recordset.length || result.recordset[0].admitido !== 'si') {
       razones.push('Usuario no verificado por la empresa');
     }
 
-    res.json({
-      valido: razones.length === 0,
-      razones
-    });
+    const validezFinanciera = await usuarioEsValido(req.user.id);
+    razones.push(...validezFinanciera.razones);
+
+    res.json({ valido: razones.length === 0, razones });
 
   } catch (err) {
     console.error(err);
@@ -128,6 +124,100 @@ router.get('/me/historial', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /usuarios/me/deudas
+router.get('/me/deudas', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('id', sql.Int, req.user.id)
+      .query(`
+        SELECT TOP 1 d.identificador, d.subasta, d.itemId, d.montoOriginal, d.multa, d.total, d.fechaLimite,
+               pr.descripcionCatalogo as nombreItem,
+               s.moneda
+        FROM deudas d
+        INNER JOIN itemsCatalogo ic ON ic.identificador = d.itemId
+        INNER JOIN productos pr ON pr.identificador = ic.producto
+        INNER JOIN subastas s ON s.identificador = d.subasta
+        WHERE d.cliente = @id AND d.estado = 'pendiente'
+        ORDER BY d.fechaCreacion DESC
+      `);
+
+    if (!result.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'No tenés deudas pendientes' });
+
+    const d = result.recordset[0];
+    res.json({
+      deuda: {
+        id: d.identificador,
+        subastaId: d.subasta,
+        itemId: d.itemId,
+        nombreItem: d.nombreItem,
+        ofertaOriginal: d.montoOriginal,
+        multa: d.multa,
+        total: d.total,
+        fechaLimite: d.fechaLimite,
+        moneda: d.moneda
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// POST /usuarios/me/deudas/pagar
+router.post('/me/deudas/pagar', authMiddleware, async (req, res) => {
+  const { medioId } = req.body;
+  if (!medioId)
+    return res.status(400).json({ codigo: 400, mensaje: 'Falta el medio de pago' });
+
+  try {
+    const pool = await getPool();
+
+    const deudaRes = await pool.request()
+      .input('id', sql.Int, req.user.id)
+      .query(`SELECT TOP 1 * FROM deudas WHERE cliente = @id AND estado = 'pendiente' ORDER BY fechaCreacion DESC`);
+
+    if (!deudaRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'No tenés deudas pendientes' });
+
+    const deuda = deudaRes.recordset[0];
+
+    const medioRes = await pool.request()
+      .input('medioId', sql.VarChar, medioId)
+      .input('uid', sql.Int, req.user.id)
+      .query('SELECT * FROM mediosPago WHERE id = @medioId AND usuarioId = @uid');
+
+    if (!medioRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'Medio de pago no encontrado' });
+
+    const medio = medioRes.recordset[0];
+
+    if (medio.limiteDisponible < deuda.total) {
+      return res.status(402).json({
+        codigo: 402,
+        mensaje: `Fondos insuficientes. Disponible: $${medio.limiteDisponible.toLocaleString('es-AR')}`
+      });
+    }
+
+    await pool.request()
+      .input('medioId', sql.VarChar, medioId)
+      .input('total', sql.Decimal(18,2), deuda.total)
+      .query('UPDATE mediosPago SET limiteDisponible = limiteDisponible - @total WHERE id = @medioId');
+
+    await pool.request()
+      .input('id', sql.Int, deuda.identificador)
+      .query(`UPDATE deudas SET estado = 'pagada' WHERE identificador = @id`);
+
+    res.json({ mensaje: 'Pago realizado' });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
 // POST /usuarios/me/medios-pago
 router.post('/me/medios-pago', authMiddleware, async (req, res) => {
   const { tipo, titular, moneda, numeroTarjeta, vencimiento, cvv,
@@ -152,28 +242,44 @@ router.post('/me/medios-pago', authMiddleware, async (req, res) => {
       descripcion = `Cheque certificado — $${montoCheque}`;
     }
 
-    // Guardar en tabla mediospago (la creamos ahora)
+    const verificado = Math.random() < 0.85 ? 1 : 0;
+
+    const LIMITE_TARJETA = {
+      ARS: { comun: 150000, especial: 300000, plata: 500000, oro: 750000, platino: 1000000 },
+      USD: { comun: 150,    especial: 300,    plata: 500,    oro: 750,    platino: 1000 }
+    };
+
+    let limite = montoReservado || montoCheque || 0;
+
+    if (tipo === 'tarjeta_credito' || tipo === 'tarjeta_debito') {
+      const catRes = await pool.request()
+        .input('id', sql.Int, req.user.id)
+        .query('SELECT categoria FROM clientes WHERE identificador = @id');
+      const categoria = catRes.recordset[0]?.categoria || 'comun';
+      limite = LIMITE_TARJETA[moneda]?.[categoria] ?? LIMITE_TARJETA.ARS[categoria];
+    }
+
     await pool.request()
       .input('id', sql.VarChar, medioId)
       .input('usuarioId', sql.Int, req.user.id)
       .input('tipo', sql.VarChar, tipo)
       .input('descripcion', sql.VarChar, descripcion)
       .input('moneda', sql.VarChar, moneda)
-      .input('limite', sql.Decimal(18,2), montoReservado || montoCheque || 0)
+      .input('limite', sql.Decimal(18,2), limite)
+      .input('verificado', sql.Bit, verificado)
       .query(`
         INSERT INTO mediosPago (id, usuarioId, tipo, descripcion, verificado, moneda, limiteDisponible)
-        VALUES (@id, @usuarioId, @tipo, @descripcion, 0, @moneda, @limite)
+        VALUES (@id, @usuarioId, @tipo, @descripcion, @verificado, @moneda, @limite)
       `);
 
-    // Evaluar si corresponde subir de categoría
     await evaluarCategoria(req.user.id);
     res.status(201).json({
       id: medioId,
       tipo,
       descripcion,
-      verificado: false,
+      verificado: verificado === 1,
       moneda,
-      limiteDisponible: montoReservado || montoCheque || 0
+      limiteDisponible: limite
     });
 
   } catch (err) {

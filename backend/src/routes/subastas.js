@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { getPool, sql } = require('../database');
-const { evaluarCategoria } = require('../categorias');
+const { evaluarCategoria, usuarioEsValido  } = require('../categorias');
 const authMiddleware = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
 
@@ -284,6 +284,10 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
   if (!monto || !medioId) {
     return res.status(400).json({ codigo: 400, mensaje: 'Faltan monto o medio de pago' });
   }
+  const validez = await usuarioEsValido(req.user.id);
+  if (!validez.valido) {
+    return res.status(403).json({ codigo: 403, mensaje: 'Usuario no habilitado para pujar', razones: validez.razones });
+  }
 
   try {
     const pool = await getPool();
@@ -398,27 +402,29 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       .input('uid', sql.Int, req.user.id)
       .input('medioId', sql.VarChar, medioId)
       .query(`
-        SELECT ISNULL(SUM(p.importe), 0) as total
-        FROM pujos p
-        INNER JOIN asistentes a ON a.identificador = p.asistente
-        WHERE a.cliente = @uid
-        AND p.medio_pago_id = @medioId
-        AND p.ganador = 'no'
-        AND p.item IN (
-          SELECT ic.identificador FROM itemsCatalogo ic WHERE ic.subastado = 'no'
-        )
+        SELECT ISNULL(SUM(ultima.importe), 0) as total
+        FROM (
+          SELECT p.importe,
+                ROW_NUMBER() OVER (PARTITION BY p.item ORDER BY p.identificador DESC) as rn
+          FROM pujos p
+          INNER JOIN asistentes a ON a.identificador = p.asistente
+          WHERE a.cliente = @uid
+          AND p.medio_pago_id = @medioId
+          AND p.item IN (
+            SELECT ic.identificador FROM itemsCatalogo ic WHERE ic.subastado = 'no'
+          )
+        ) ultima
+        WHERE ultima.rn = 1
       `);
 
     const comprometido = comprometidoRes.recordset[0].total;
     const disponible = (medio.limiteDisponible || 0) - comprometido;
 
-    if (medio.tipo !== 'tarjeta_credito' && medio.tipo !== 'tarjeta_debito') {
-      if (monto > disponible) {
-        return res.status(402).json({
-          codigo: 402,
-          mensaje: `Fondos insuficientes. Disponible: $${disponible.toLocaleString('es-AR')}`
-        });
-      }
+    if (monto > disponible) {
+      return res.status(402).json({
+        codigo: 402,
+        mensaje: `Fondos insuficientes. Disponible: $${disponible.toLocaleString('es-AR')}`
+      });
     }
 
     const pujaInsert = await pool.request()
@@ -616,6 +622,16 @@ router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, asy
 
     const item = itemRes.recordset[0];
 
+    // Total real a cobrar: oferta + comisión, como en la factura
+    const totalFactura = puja.importe + item.comision;
+
+    const medioRes = await pool.request()
+      .input('medioId', sql.VarChar, puja.medio_pago_id)
+      .query('SELECT * FROM mediosPago WHERE id = @medioId');
+
+    const medio = medioRes.recordset[0];
+    const fondosSuficientes = medio && medio.limiteDisponible >= totalFactura;
+
     const asisRes = await pool.request()
       .input('asisId', sql.Int, puja.asistente)
       .query('SELECT cliente FROM asistentes WHERE identificador = @asisId');
@@ -633,6 +649,27 @@ router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, asy
         INSERT INTO registroDeSubasta (subasta, duenio, producto, cliente, importe, comision)
         VALUES (@subasta, @duenio, @producto, @cliente, @importe, @comision)
       `);
+
+    if (fondosSuficientes) {
+      await pool.request()
+        .input('medioId', sql.VarChar, puja.medio_pago_id)
+        .input('total', sql.Decimal(18,2), totalFactura)
+        .query('UPDATE mediosPago SET limiteDisponible = limiteDisponible - @total WHERE id = @medioId');
+    } else {
+      const multa = totalFactura * 0.10;
+      await pool.request()
+        .input('cliente', sql.Int, clienteId)
+        .input('subasta', sql.Int, subastaId)
+        .input('itemId', sql.Int, itemId)
+        .input('montoOriginal', sql.Decimal(18,2), totalFactura)
+        .input('multa', sql.Decimal(18,2), multa)
+        .input('total', sql.Decimal(18,2), totalFactura + multa)
+        .input('fechaLimite', sql.DateTime, new Date(Date.now() + 72 * 60 * 60 * 1000))
+        .query(`
+          INSERT INTO deudas (cliente, subasta, itemId, montoOriginal, multa, total, estado, fechaLimite)
+          VALUES (@cliente, @subasta, @itemId, @montoOriginal, @multa, @total, 'pendiente', @fechaLimite)
+        `);
+    }
 
     const duenioExisteRes = await pool.request()
       .input('clienteId', sql.Int, clienteId)
@@ -654,7 +691,8 @@ router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, asy
       .query('UPDATE productos SET duenio = @clienteId WHERE identificador = @productoId');
 
     res.json({
-      mensaje: 'Puja confirmada',
+      mensaje: fondosSuficientes ? 'Puja confirmada' : 'Puja confirmada, pero se generó una deuda por fondos insuficientes',
+      deudaGenerada: !fondosSuficientes,
       factura: {
         pujaId: pujaIdNum,
         subastaId,
@@ -662,7 +700,7 @@ router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, asy
         clienteId,
         importe: puja.importe,
         comision: item.comision,
-        total: puja.importe + item.comision,
+        total: totalFactura,
       }
     });
 

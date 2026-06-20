@@ -58,8 +58,11 @@ export default function DetalleItemScreen({ route, navigation }) {
     try {
       const res = await usuarioService.perfil();
       const todos = res.data.mediosPago || [];
+      console.log('Medios sin filtrar:', JSON.stringify(todos.map(m => ({ desc: m.descripcion, verificado: m.verificado, tipo: typeof m.verificado }))));
       const monedaSubasta = subasta?.moneda || 'ARS';
-      const filtrados = todos.filter(m => m.moneda === monedaSubasta);
+      const filtrados = todos.filter(m => 
+        m.moneda === monedaSubasta && (m.verificado === 1 || m.verificado === true)
+      );
       setMediosPago(filtrados);
       if (filtrados.length > 0) setMedioSeleccionado(filtrados[0]);
     } catch {}

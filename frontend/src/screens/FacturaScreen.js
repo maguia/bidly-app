@@ -117,7 +117,7 @@ export default function FacturaScreen({ route, navigation }) {
         {/* Botón volver */}
         <TouchableOpacity
           style={styles.boton}
-          onPress={() => navigation.navigate('Home')}
+          onPress={() => navigation.navigate('MainTabs', { screen: 'Inicio' })}
         >
           <Text style={styles.botonTexto}>VOLVER AL INICIO</Text>
         </TouchableOpacity>

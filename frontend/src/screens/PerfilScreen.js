@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Platform, Image
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Platform, Image, Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -15,6 +15,8 @@ export default function PerfilScreen({ navigation }) {
   
   const [mediosDePagoReales, setMediosDePagoReales] = useState([]);
   const [direccion, setDireccion] = useState('');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [verificacion, setVerificacion] = useState({ valido: true, razones: [] });
 
   useEffect(() => {
     if (user?.domicilio) {
@@ -36,12 +38,13 @@ export default function PerfilScreen({ navigation }) {
 
   // Se ejecuta al enfocar la pantalla
   useFocusEffect(
-  useCallback(() => {
-    if (user) {
-      traerMediosDePago();
-    }
-  }, [user])
-);
+    useCallback(() => {
+      if (user) {
+        traerMediosDePago();
+        cargarVerificacion();
+      }
+    }, [user])
+  );
 
 const eliminarMedioPago = async (id) => {
     const ejecutarEliminacion = async () => {
@@ -82,6 +85,20 @@ const eliminarMedioPago = async (id) => {
     }
   };
 
+  const cargarVerificacion = async () => {
+    try {
+      const res = await usuarioService.verificacion();
+      setVerificacion(res.data);
+    } catch (error) {
+      console.log('Error consultando verificación:', error);
+      setVerificacion({ valido: false, razones: ['No se pudo verificar tu estado'] });
+    }
+  };
+
+  const abrirVerificacion = () => {
+    setModalVisible(true);
+  };
+  
   const elegirFotoPerfil = () => {
   Alert.alert(
     'Foto de perfil',
@@ -201,7 +218,11 @@ const subirFotoPerfil = async (resultado) => {
   );
 }
 
+  const tieneDeuda = verificacion.razones.includes('Posee deudas pendientes de pago');
+  const sinMediosValidos = verificacion.razones.includes('No posee medios de pago válidos');
+
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       
       {/* 1. HEADER AZUL OSCURO */}
@@ -238,11 +259,14 @@ const subirFotoPerfil = async (resultado) => {
             </TouchableOpacity>
           </View>
           
-          <View style={styles.badgeVerificado}>
-            <Text style={styles.badgeVerificadoTexto}>
-              {user?.verificado ? 'Usuario verificado' : 'No verificado'}
+          <TouchableOpacity
+            style={[styles.badgeVerificado, !verificacion.valido && styles.badgeNoVerificado]}
+            onPress={abrirVerificacion}
+          >
+            <Text style={[styles.badgeVerificadoTexto, !verificacion.valido && styles.badgeNoVerificadoTexto]}>
+              {verificacion.valido ? 'Usuario verificado' : 'No verificado'}
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -352,7 +376,45 @@ const subirFotoPerfil = async (resultado) => {
       </TouchableOpacity>
 
     </ScrollView>
-  );
+
+      {/* MODAL DE VERIFICACIÓN */}
+    <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCaja}>
+          <Text style={styles.modalTitulo}>
+            {verificacion.valido ? 'Usuario válido para realizar pujas' : 'Usuario Inválido para realizar pujas'}
+          </Text>
+          <Text style={styles.modalSubtitulo}>La verificación realizada arrojó:</Text>
+
+          <View style={styles.modalChecklist}>
+            <View style={styles.modalCheckRow}>
+              <Text style={tieneDeuda ? styles.modalCruz : styles.modalCheck}>{tieneDeuda ? '✕' : '✓'}</Text>
+              <Text style={styles.modalCheckTexto}>No se tienen deudas</Text>
+            </View>
+            <View style={styles.modalCheckRow}>
+              <Text style={sinMediosValidos ? styles.modalCruz : styles.modalCheck}>{sinMediosValidos ? '✕' : '✓'}</Text>
+              <Text style={styles.modalCheckTexto}>Posee medios de pago válidos</Text>
+            </View>
+          </View>
+
+          {tieneDeuda && (
+            <TouchableOpacity
+              style={styles.modalIrAPagar}
+              onPress={() => { setModalVisible(false); navigation.navigate('Deudas'); }}
+            >
+              <Text style={styles.modalIrAPagarTexto}>Ir a pagar →</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity style={styles.modalAtras} onPress={() => setModalVisible(false)}>
+            <Text style={styles.modalAtrasTexto}>Atrás</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+    </>
+);
+  
 }
 
 const styles = StyleSheet.create({
@@ -387,6 +449,8 @@ const styles = StyleSheet.create({
   iconoAction: { padding: 2 },
   badgeVerificado: { backgroundColor: '#0e421e', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   badgeVerificadoTexto: { color: '#4cd964', fontSize: 10, fontWeight: 'bold' },
+  badgeNoVerificado: { backgroundColor: '#5c1f1f' },
+  badgeNoVerificadoTexto: { color: '#ff8a80' },
   lineaSeparadora: { height: 1, backgroundColor: '#C5C5C5', marginHorizontal: 20, marginBottom: 15 },
   seccion: { marginHorizontal: 20 },
   seccionTitulo: { fontSize: 12, color: '#666', fontWeight: 'bold', letterSpacing: 1, marginBottom: 10 },
@@ -431,4 +495,18 @@ invitadoBoton: { backgroundColor: '#1A2E4A', borderRadius: 8, paddingVertical: 1
 invitadoBotonTexto: { color: '#C9973A', fontSize: 14, fontWeight: 'bold' },
 invitadoBotonSecundario: { borderWidth: 1, borderColor: '#1A2E4A', borderRadius: 8, paddingVertical: 14, paddingHorizontal: 40 },
 invitadoBotonSecundarioTexto: { color: '#1A2E4A', fontSize: 14, fontWeight: 'bold' },
+modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+modalCaja: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 36 },
+modalTitulo: { fontSize: 17, fontWeight: 'bold', color: '#1A2E4A', textAlign: 'center', marginBottom: 6 },
+modalSubtitulo: { fontSize: 13, color: '#666', textAlign: 'center', marginBottom: 18 },
+modalChecklist: { marginBottom: 18 },
+modalCheckRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+modalCheck: { color: '#2e7d32', fontSize: 16, fontWeight: 'bold', marginRight: 10, width: 18 },
+modalCruz: { color: '#c62828', fontSize: 16, fontWeight: 'bold', marginRight: 10, width: 18 },
+modalCheckTexto: { color: '#1A2E4A', fontSize: 14 },
+modalIrAPagar: { alignSelf: 'flex-end', marginBottom: 18 },
+modalIrAPagarTexto: { color: '#E8593C', fontWeight: 'bold', fontSize: 13 },
+modalAtras: { alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#eee' },
+modalAtrasTexto: { color: '#1A2E4A', fontSize: 14, fontWeight: '600' },
+
 });

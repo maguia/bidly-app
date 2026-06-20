@@ -94,4 +94,10 @@ export const usuarioService = {
 
   actualizarFoto: (fotoBase64) => 
     api.put('/usuarios/me/foto', { foto: fotoBase64 }),
+
+  deuda: () => 
+    api.get('/usuarios/me/deudas'),
+  
+  pagarDeuda: (medioId) => 
+    api.post('/usuarios/me/deudas/pagar', { medioId }),
 };

@@ -80,4 +80,21 @@ async function evaluarCategoria(usuarioId) {
   }
 }
 
-module.exports = { evaluarCategoria };
+async function usuarioEsValido(usuarioId) {
+  const pool = await getPool();
+  const razones = [];
+
+  const medioValidoRes = await pool.request()
+    .input('id', sql.Int, usuarioId)
+    .query(`SELECT COUNT(*) as total FROM mediosPago WHERE usuarioId = @id AND verificado = 1`);
+  if (medioValidoRes.recordset[0].total === 0) razones.push('No posee medios de pago válidos');
+
+  const deudaRes = await pool.request()
+    .input('id', sql.Int, usuarioId)
+    .query(`SELECT COUNT(*) as total FROM deudas WHERE cliente = @id AND estado = 'pendiente'`);
+  if (deudaRes.recordset[0].total > 0) razones.push('Posee deudas pendientes de pago');
+
+  return { valido: razones.length === 0, razones };
+}
+
+module.exports = { evaluarCategoria, usuarioEsValido };
