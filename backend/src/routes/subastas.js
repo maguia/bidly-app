@@ -475,7 +475,8 @@ router.get('/:id/historial', authMiddleware, async (req, res) => {
           ic.precioBase,
           p.importe as monto,
           p.ganador,
-          p.identificador as pujaId
+          p.identificador as pujaId,
+          a.cliente as postorId
         FROM pujos p
         INNER JOIN asistentes a ON a.identificador = p.asistente
         INNER JOIN itemsCatalogo ic ON ic.identificador = p.item
@@ -498,12 +499,14 @@ router.get('/:id/historial', authMiddleware, async (req, res) => {
       itemsMap[row.itemId].pujas.push({
         pujaId: row.pujaId,
         monto: row.monto,
-        ganador: row.ganador === 'si'
+        ganador: row.ganador === 'si',
+        postorId: row.postorId
       });
     });
 
     res.json({
       subastaId: req.params.id,
+      fecha: subRes.recordset[0].fecha,
       items: Object.values(itemsMap)
     });
 

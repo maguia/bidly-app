@@ -1,15 +1,17 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Platform
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Platform, Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
+//import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+//import axios from 'axios';
+import { usuarioService } from '../services/api';
 
 export default function PerfilScreen({ navigation }) {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   
   const [mediosDePagoReales, setMediosDePagoReales] = useState([]);
   const [direccion, setDireccion] = useState('');
@@ -23,45 +25,34 @@ export default function PerfilScreen({ navigation }) {
 
   // Sacamos la función afuera para poder reutilizarla después de eliminar
   const traerMediosDePago = async () => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      if (token) {
-        const res = await axios.get('http://localhost:3000/usuarios/me/medios-pago', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setMediosDePagoReales(res.data || []);
-      }
-    } catch (error) {
-      console.log("Error trayendo medios de pago:", error);
-      setMediosDePagoReales(user?.mediosPago || []);
-    }
-  };
+  try {
+    const res = await usuarioService.traerMediosPago();
+    setMediosDePagoReales(res.data || []);
+  } catch (error) {
+    console.log("Error trayendo medios de pago:", error);
+    setMediosDePagoReales([]);
+  }
+};
 
   // Se ejecuta al enfocar la pantalla
   useFocusEffect(
-    useCallback(() => {
+  useCallback(() => {
+    if (user) {
       traerMediosDePago();
-    }, [user])
-  );
+    }
+  }, [user])
+);
 
 const eliminarMedioPago = async (id) => {
     const ejecutarEliminacion = async () => {
       try {
-        const token = await AsyncStorage.getItem('token');
         console.log("--- DEBUG ELIMINAR ---");
         console.log("1. ID del medio a eliminar:", id);
 
-        if (token) {
-          const url = `http://localhost:3000/usuarios/me/medios-pago/${id}`;
-          console.log("2. URL a la que le pegamos:", url);
-
-          const res = await axios.delete(url, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          
-          console.log("3. Éxito:", res.data);
-          traerMediosDePago();
-        }
+        const res = await usuarioService.eliminarMedioPago(id);
+        
+        console.log("2. Éxito:", res.data);
+        traerMediosDePago();
       } catch (error) {
         console.log("🛑 ERROR EXACTO AL ELIMINAR 🛑");
         console.log(error.response ? error.response.data : error.message);
@@ -91,24 +82,75 @@ const eliminarMedioPago = async (id) => {
     }
   };
 
+  const elegirFotoPerfil = () => {
+  Alert.alert(
+    'Foto de perfil',
+    '¿Cómo querés cargar tu foto?',
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Tomar foto', onPress: abrirCamaraPerfil },
+      { text: 'Elegir de galería', onPress: abrirGaleriaPerfil },
+    ]
+  );
+};
+
+const abrirCamaraPerfil = async () => {
+  const permiso = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permiso.granted) {
+    Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara');
+    return;
+  }
+  const resultado = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.5 });
+  subirFotoPerfil(resultado);
+};
+
+const abrirGaleriaPerfil = async () => {
+  const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permiso.granted) {
+    Alert.alert('Permiso requerido', 'Necesitamos acceso a tus fotos');
+    return;
+  }
+  const resultado = await ImagePicker.launchImageLibraryAsync({
+    base64: true,
+    quality: 0.5,
+    mediaTypes: ['images'],
+  });
+  subirFotoPerfil(resultado);
+};
+
+const subirFotoPerfil = async (resultado) => {
+  if (resultado.canceled) return;
+  const dataUri = `data:image/jpeg;base64,${resultado.assets[0].base64}`;
+  try {
+    await usuarioService.actualizarFoto(dataUri);
+    updateUser({ foto: dataUri });
+  } catch (error) {
+    console.log('Error subiendo foto de perfil:', error);
+    Alert.alert('Error', 'No se pudo actualizar la foto de perfil.');
+  }
+};
+
  const guardarDireccion = async () => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      if (token) {
-        // Asegurate de que esta sea la ruta correcta en tu backend
-        await axios.put('http://localhost:3000/usuarios/me/direccion', 
-          { direccion: direccion },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        
-        Alert.alert('Éxito', 'Dirección actualizada correctamente');
-        // Opcional: Actualizar el contexto del usuario aquí si fuera necesario
-      }
-    } catch (error) {
-      console.log("Error guardando dirección:", error);
-      Alert.alert('Error', 'No se pudo actualizar la dirección.');
-    }
-  };
+  if (!direccion.trim()) {
+    Alert.alert('Error', 'Escribí una dirección antes de guardar.');
+    return;
+  }
+  try {
+    await usuarioService.actualizarDireccion(direccion);
+    Alert.alert('Éxito', 'Dirección actualizada correctamente');
+    if (Platform.OS === 'web') {
+          window.alert('Dirección actualizada correctamente.');
+        } else {
+          Alert.alert('Éxito', 'Dirección actualizada correctamente.');
+        }
+        setDireccion('');
+      } catch (error) {
+    console.log("Error guardando dirección:", error);
+    Alert.alert('Error', 'No se pudo actualizar la dirección.');
+
+    
+  }
+};
 
   const handleLogout = async () => {
     if (Platform.OS === 'web') {
@@ -141,6 +183,24 @@ const eliminarMedioPago = async (id) => {
     return String(name).trim().charAt(0).toUpperCase();
   };
 
+  if (!user) {
+  return (
+    <View style={styles.invitadoContainer}>
+      <Ionicons name="person-circle-outline" size={80} color="#1A2E4A" />
+      <Text style={styles.invitadoTitulo}>No tenés una cuenta activa</Text>
+      <Text style={styles.invitadoTexto}>
+        Iniciá sesión o registrate para ver tu perfil, tus medios de pago y tu historial de subastas.
+      </Text>
+      <TouchableOpacity style={styles.invitadoBoton} onPress={() => navigation.navigate('Login')}>
+        <Text style={styles.invitadoBotonTexto}>Iniciar sesión</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.invitadoBotonSecundario} onPress={() => navigation.navigate('Registro')}>
+        <Text style={styles.invitadoBotonSecundarioTexto}>Registrarme</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       
@@ -151,9 +211,11 @@ const eliminarMedioPago = async (id) => {
 
       {/* 2. SECCIÓN DE INFORMACIÓN DEL USUARIO */}
       <View style={styles.userInfoContainer}>
-        <View style={styles.avatarContainer}>
-          <Text style={styles.avatarTexto}>{getInitials(user?.nombre)}</Text>
-        </View>
+        <TouchableOpacity style={styles.avatarContainer} onPress={elegirFotoPerfil}>
+          {user?.foto
+            ? <Image source={{ uri: user.foto }} style={styles.avatarFoto} />
+            : <Text style={styles.avatarTexto}>{getInitials(user?.nombre)}</Text>}
+        </TouchableOpacity>
 
         <View style={styles.datosContainer}>
           <Text style={styles.nombreTexto}>{user?.nombre || 'Usuario sin nombre'}</Text>
@@ -294,13 +356,27 @@ const eliminarMedioPago = async (id) => {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#E0E0E0' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#E0E0E0' 
+  },
   content: { paddingBottom: 40 },
-  headerOscuro: { backgroundColor: '#1A2E4A', paddingTop: 50, paddingBottom: 20, paddingHorizontal: 20 },
-  tituloHeader: { fontSize: 24, fontWeight: 'bold', color: '#C9973A' },
+  headerOscuro: { 
+    backgroundColor: '#1A2E4A', 
+    paddingTop: 50, 
+    paddingBottom: 20, 
+    paddingHorizontal: 20 
+  },
+  tituloHeader: { 
+    fontSize: 24, 
+    fontWeight: 'bold', 
+    color: '#C9973A' 
+  },
   userInfoContainer: { flexDirection: 'row', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 15, alignItems: 'center', justifyContent: 'space-between' },
   avatarContainer: { width: 60, height: 60, backgroundColor: '#C9973A', borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  avatarTexto: { fontSize: 22, fontWeight: 'bold', color: '#1A2E4A' },
+  avatarTexto: { 
+    fontSize: 22, fontWeight: 'bold', color: '#1A2E4A' },
+  avatarFoto: { width: '100%', height: '100%', borderRadius: 30 },
   datosContainer: { flex: 1, justifyContent: 'center' },
   nombreTexto: { fontSize: 18, fontWeight: 'bold', color: '#C9973A', marginBottom: 2 },
   emailTexto: { fontSize: 13, color: '#A0AAB5', marginBottom: 6 },
@@ -348,4 +424,11 @@ const styles = StyleSheet.create({
     fontSize: 14, 
     fontWeight: 'bold' 
   },
+  invitadoContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30, backgroundColor: '#E0E0E0' },
+invitadoTitulo: { fontSize: 18, fontWeight: 'bold', color: '#1A2E4A', marginTop: 16, textAlign: 'center' },
+invitadoTexto: { fontSize: 14, color: '#666', textAlign: 'center', marginTop: 8, marginBottom: 24 },
+invitadoBoton: { backgroundColor: '#1A2E4A', borderRadius: 8, paddingVertical: 14, paddingHorizontal: 40, marginBottom: 10 },
+invitadoBotonTexto: { color: '#C9973A', fontSize: 14, fontWeight: 'bold' },
+invitadoBotonSecundario: { borderWidth: 1, borderColor: '#1A2E4A', borderRadius: 8, paddingVertical: 14, paddingHorizontal: 40 },
+invitadoBotonSecundarioTexto: { color: '#1A2E4A', fontSize: 14, fontWeight: 'bold' },
 });

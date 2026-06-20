@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ScrollView, Alert, ActivityIndicator
+  StyleSheet, ScrollView, Alert, ActivityIndicator, Image
 } from 'react-native';
 import { authService } from '../services/api';
-
+import * as ImagePicker from 'expo-image-picker';
 const PAISES = [
   'Argentina', 'Brasil', 'Chile', 'Uruguay', 'Paraguay',
   'Bolivia', 'Perú', 'Colombia', 'Venezuela', 'México',
@@ -20,6 +20,52 @@ export default function RegistroScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [declaracion, setDeclaracion] = useState(false);
   const [cargando, setCargando] = useState(false);
+  const [documento, setDocumento] = useState('');
+  const [fotoFrente, setFotoFrente] = useState(null);
+  const [fotoDorso, setFotoDorso] = useState(null);
+
+  const elegirFoto = (lado) => {
+  Alert.alert(
+    'Foto del DNI',
+    `¿Cómo querés cargar el ${lado === 'frente' ? 'frente' : 'dorso'} del DNI?`,
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Tomar foto', onPress: () => abrirCamara(lado) },
+      { text: 'Elegir de galería', onPress: () => abrirGaleria(lado) },
+    ]
+  );
+};
+
+const abrirCamara = async (lado) => {
+  const permiso = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permiso.granted) {
+    Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara para sacar la foto del DNI');
+    return;
+  }
+  const resultado = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.5 });
+  procesarFoto(resultado, lado);
+};
+
+const abrirGaleria = async (lado) => {
+  const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permiso.granted) {
+    Alert.alert('Permiso requerido', 'Necesitamos acceso a tus fotos para elegir la imagen del DNI');
+    return;
+  }
+  const resultado = await ImagePicker.launchImageLibraryAsync({
+    base64: true,
+    quality: 0.5,
+    mediaTypes: ['images'],
+  });
+  procesarFoto(resultado, lado);
+};
+
+const procesarFoto = (resultado, lado) => {
+  if (resultado.canceled) return;
+  const dataUri = `data:image/jpeg;base64,${resultado.assets[0].base64}`;
+  if (lado === 'frente') setFotoFrente(dataUri);
+  else setFotoDorso(dataUri);
+};
 
   const handleEnviar = async () => {
     // Validaciones
@@ -43,6 +89,18 @@ export default function RegistroScreen({ navigation }) {
       Alert.alert('Error', 'Ingresá un email válido');
       return;
     }
+    if (!documento) {
+      Alert.alert('Error', 'Ingresá tu número de documento');
+      return;
+    }
+    if (!fotoFrente) {
+      Alert.alert('Error', 'Sacá o subí una foto del frente del DNI');
+      return;
+    }
+    if (!fotoDorso) {
+      Alert.alert('Error', 'Sacá o subí una foto del dorso del DNI');
+      return;
+    }
     if (!declaracion) {
       Alert.alert('Error', 'Debés declarar que los datos son correctos y verídicos');
       return;
@@ -50,9 +108,10 @@ export default function RegistroScreen({ navigation }) {
 
     setCargando(true);
     try {
-      await authService.registro({ nombre, apellido, email, paisOrigen, domicilio, declaracion });
+      await authService.registro({ nombre, apellido, email, paisOrigen, domicilio, declaracion, documento, fotoDniFrente: fotoFrente, fotoDniDorso: fotoDorso });
       navigation.replace('SolicitudEnviada', { email });
     } catch (error) {
+      console.log('Error completo:', error.response?.status, error.response?.data);
       const codigo = error.response?.status;
       if (codigo === 409) {
         Alert.alert(
@@ -100,6 +159,15 @@ export default function RegistroScreen({ navigation }) {
         onChangeText={setApellido}
       />
 
+      <TextInput
+        style={styles.input}
+        placeholder="Número de documento (DNI)"
+        placeholderTextColor="#aaa"
+        value={documento}
+        onChangeText={setDocumento}
+        keyboardType="numeric"
+      />
+
       {/* País de origen */}
       <Text style={styles.seccion}>País de origen</Text>
       <TouchableOpacity
@@ -143,11 +211,15 @@ export default function RegistroScreen({ navigation }) {
       {/* Foto del DNI */}
       <Text style={styles.seccion}>Foto del DNI</Text>
       <View style={styles.dniRow}>
-        <TouchableOpacity style={styles.dniBoton}>
-          <Text style={styles.dniTexto}>+ Frente</Text>
+        <TouchableOpacity style={styles.dniBoton} onPress={() => elegirFoto('frente')}>
+          {fotoFrente
+            ? <Image source={{ uri: fotoFrente }} style={styles.dniPreview} />
+            : <Text style={styles.dniTexto}>+ Frente</Text>}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.dniBoton}>
-          <Text style={styles.dniTexto}>+ Dorso</Text>
+        <TouchableOpacity style={styles.dniBoton} onPress={() => elegirFoto('dorso')}>
+          {fotoDorso
+            ? <Image source={{ uri: fotoDorso }} style={styles.dniPreview} />
+            : <Text style={styles.dniTexto}>+ Dorso</Text>}
         </TouchableOpacity>
       </View>
 
@@ -271,6 +343,12 @@ const styles = StyleSheet.create({
     padding: 30,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  dniPreview: {
+    width: '100%',
+    height: 100,
+    borderRadius: 8,
   },
   dniTexto: {
     color: '#1A2E4A',

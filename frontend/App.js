@@ -22,6 +22,7 @@ import FacturaScreen from './src/screens/FacturaScreen';
 import PerfilScreen from './src/screens/PerfilScreen';
 import NotificacionesScreen from './src/screens/NotificacionesScreen';
 import HistorialScreen from './src/screens/HistorialScreen';
+import DetallePujaScreen from './src/screens/DetallePujaScreen';
 
 
 // Importar el Tab Navigator (¡Solo una vez!)
@@ -107,6 +108,9 @@ export default function App() {
           <Stack.Screen name="Notificaciones" component={NotificacionesScreen} />
 
           <Stack.Screen name="Historial" component={HistorialScreen} />
+
+           <Stack.Screen name="DetallePuja" component={DetallePujaScreen} />
+
 
           
           {/* Pantallas secundarias */}

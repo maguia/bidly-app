@@ -79,4 +79,19 @@ export const usuarioService = {
 
   agregarMedioPago: (datos) =>
     api.post('/usuarios/me/medios-pago', datos),
+
+  traerMediosPago: () => 
+    api.get('/usuarios/me/medios-pago'),
+
+  eliminarMedioPago: (id) => 
+    api.delete(`/usuarios/me/medios-pago/${id}`),
+
+  actualizarDireccion: (direccion) => 
+    api.put('/usuarios/me/direccion', { direccion }),
+
+  historial: () => 
+    api.get('/usuarios/me/historial'),
+
+  actualizarFoto: (fotoBase64) => 
+    api.put('/usuarios/me/foto', { foto: fotoBase64 }),
 };

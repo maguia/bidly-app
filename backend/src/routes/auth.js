@@ -77,12 +77,11 @@ router.post('/login', async (req, res) => {
 // ─── POST /auth/registro/solicitud ─────────────────────
 // Paso 1 del registro: el usuario manda sus datos personales
 router.post('/registro/solicitud', async (req, res) => {
-  const { nombre, apellido, email, paisOrigen, domicilio, declaracion } = req.body;
+  const { nombre, apellido, email, paisOrigen, domicilio, declaracion, documento, fotoDniFrente, fotoDniDorso } = req.body;
 
-  // Validar campos obligatorios
-  if (!nombre || !apellido || !email || !domicilio || !declaracion) {
-    return res.status(400).json({ codigo: 400, mensaje: 'Faltan datos obligatorios' });
-  }
+if (!nombre || !apellido || !email || !domicilio || !declaracion || !documento || !fotoDniFrente || !fotoDniDorso) {
+  return res.status(400).json({ codigo: 400, mensaje: 'Faltan datos obligatorios' });
+}
 
   try {
     const pool = await getPool();
@@ -97,13 +96,15 @@ router.post('/registro/solicitud', async (req, res) => {
 
     // Insertar la persona con estado inactivo (hasta que la empresa la verifique)
     const insert = await pool.request()
-      .input('doc', sql.VarChar, email)
+      .input('doc', sql.VarChar, documento)
       .input('nombre', sql.VarChar, `${nombre} ${apellido}`)
       .input('dir', sql.VarChar, domicilio)
+      .input('fotoFrente', sql.VarChar(sql.MAX), fotoDniFrente)
+      .input('fotoDorso', sql.VarChar(sql.MAX), fotoDniDorso)
       .query(`
-        INSERT INTO personas (documento, nombre, direccion, estado)
+        INSERT INTO personas (documento, nombre, direccion, estado, fotoDniFrente, fotoDniDorso)
         OUTPUT INSERTED.identificador
-        VALUES (@doc, @nombre, @dir, 'inactivo')
+        VALUES (@doc, @nombre, @dir, 'inactivo', @fotoFrente, @fotoDorso)
       `);
 
     const personaId = insert.recordset[0].identificador;
@@ -132,12 +133,20 @@ router.post('/registro/solicitud', async (req, res) => {
         // comun tiene más probabilidad para simular realismo
         const categoriaAsignada = categorias[Math.floor(Math.random() * categorias.length)];
 
+        // Buscar el código numérico del país que eligió el usuario
+        const paisRes = await pool.request()
+          .input('nombre', sql.VarChar, paisOrigen)
+          .query('SELECT numero FROM paises WHERE nombre = @nombre');
+
+        const numeroPais = paisRes.recordset.length ? paisRes.recordset[0].numero : null;
+
         await pool.request()
           .input('id', sql.Int, personaId)
           .input('cat', sql.VarChar, categoriaAsignada)
+          .input('pais', sql.Int, numeroPais)
           .query(`
-            INSERT INTO clientes (identificador, admitido, categoria, verificador)
-            VALUES (@id, 'si', @cat, 1)
+            INSERT INTO clientes (identificador, admitido, categoria, verificador, numeroPais)
+            VALUES (@id, 'si', @cat, 1, @pais)
           `);
 
         console.log(`📋 Categoría asignada a ${email}: ${categoriaAsignada}`);
@@ -173,8 +182,6 @@ router.post('/registro/solicitud', async (req, res) => {
       mensaje: 'Solicitud enviada. Recibirás un email cuando sea aprobada.',
       solicitudId: `SOL-${personaId}`
     });
-
-  
 
   } catch (err) {
     console.error(err);

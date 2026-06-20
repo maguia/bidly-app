@@ -27,7 +27,14 @@
     },
     "plugins": [
       "expo-font",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Bidly necesita acceso a tus fotos para cargar la imagen de tu DNI.",
+          "cameraPermission": "Bidly necesita acceso a la cámara para sacar la foto de tu DNI."
+        }
+      ]
     ]
   }
 }

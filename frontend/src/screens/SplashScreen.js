@@ -3,10 +3,14 @@ import {
   View, Text, Image, StyleSheet, Animated, Dimensions
 } from 'react-native';
 import { useFonts, Unbounded_700Bold } from '@expo-google-fonts/unbounded';
+import { useAuth } from '../context/AuthContext';
+
 
 const { width } = Dimensions.get('window');
 
 export default function SplashScreen({ navigation }) {
+
+  const { logout } = useAuth();
   const barraAncho = useRef(new Animated.Value(0)).current;
   const opacidad = useRef(new Animated.Value(0)).current;
   
@@ -32,7 +36,8 @@ export default function SplashScreen({ navigation }) {
     }).start();
 
     // Navegar al Login después de 3 segundos
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
+      await logout();
       navigation.replace('Login');
     }, 3000);
 

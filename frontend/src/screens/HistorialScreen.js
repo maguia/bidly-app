@@ -2,8 +2,9 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
+//import AsyncStorage from '@react-native-async-storage/async-storage';
+//import axios from 'axios';
+import { usuarioService } from '../services/api';
 
 export default function HistorialScreen({ navigation }) {
   const [historial, setHistorial] = useState({ totalSubastas: 0, totalOfertado: 0, participaciones: [] });
@@ -12,10 +13,8 @@ export default function HistorialScreen({ navigation }) {
     useCallback(() => {
       const fetchHistorial = async () => {
         try {
-          const token = await AsyncStorage.getItem('token');
-          const res = await axios.get('http://localhost:3000/usuarios/me/historial', {
-            headers: { Authorization: `Bearer ${token}` }
-          });
+          //const token = await AsyncStorage.getItem('token');
+          const res = await usuarioService.historial();
           setHistorial(res.data);
         } catch (error) {
           console.error("Error al cargar historial:", error);
@@ -46,9 +45,9 @@ export default function HistorialScreen({ navigation }) {
       {/* Lista de participaciones */}
       <FlatList
         data={historial.participaciones}
-        keyExtractor={(item) => item.subastaId.toString()}
+        keyExtractor={(item) => item.itemId.toString()}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.itemCard} onPress={() => navigation.navigate('DetallePuja', { subastaId: item.subastaId })}>
+          <TouchableOpacity style={styles.itemCard} onPress={() => navigation.navigate('DetallePuja', { subastaId: item.subastaId, itemId: item.itemId  })}>
             <View>
               <Text style={styles.itemNombre}>{item.itemNombre}</Text>
               <Text style={styles.subInfo}>Subasta #{item.subastaId} - Tu última puja: ${item.ultimaPuja}</Text>

@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authService } from '../services/api';
+import { authService,  usuarioService } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -10,22 +10,49 @@ export function AuthProvider({ children }) {
 
   // Al arrancar la app, verifica si hay sesión guardada
   useEffect(() => {
-    AsyncStorage.getItem('user').then(data => {
-      if (data) setUser(JSON.parse(data));
+    const cargarSesion = async () => {
+      const dataGuardada = await AsyncStorage.getItem('user');
+      const token = await AsyncStorage.getItem('token');
+
+      if (dataGuardada) {
+        setUser(JSON.parse(dataGuardada));
+      }
+
+      if (token) {
+        try {
+          const res = await usuarioService.perfil();
+          console.log('Perfil recibido del backend:', res.data.nombre, '— tiene foto?', !!res.data.foto, '— largo:', res.data.foto?.length);
+          const actualizado = { ...(dataGuardada ? JSON.parse(dataGuardada) : {}), ...res.data };
+          setUser(actualizado);
+          await AsyncStorage.setItem('user', JSON.stringify(actualizado));
+        } catch (error) {
+          console.log('No se pudo refrescar el perfil:', error);
+        }
+      }
+
       setLoading(false);
-    });
+    };
+
+    cargarSesion();
   }, []);
 
   const login = async (email, password) => {
     const res = await authService.login(email, password);
     const { token, usuario } = res.data;
-    
-    // Guardar token y usuario en el dispositivo
+
     await AsyncStorage.setItem('token', token);
-    await AsyncStorage.setItem('user', JSON.stringify(usuario));
-    
-    setUser(usuario);
-    return usuario;
+
+    let usuarioCompleto = usuario;
+    try {
+      const perfilRes = await usuarioService.perfil();
+      usuarioCompleto = { ...usuario, ...perfilRes.data };
+    } catch (error) {
+      console.log('No se pudo traer el perfil completo en el login:', error);
+    }
+
+    await AsyncStorage.setItem('user', JSON.stringify(usuarioCompleto));
+    setUser(usuarioCompleto);
+    return usuarioCompleto;
   };
 
   const logout = async () => {
@@ -34,8 +61,16 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateUser = async (cambios) => {
+    setUser(prev => {
+      const actualizado = { ...prev, ...cambios };
+      AsyncStorage.setItem('user', JSON.stringify(actualizado));
+      return actualizado;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

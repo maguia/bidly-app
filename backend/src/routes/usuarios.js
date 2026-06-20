@@ -11,7 +11,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     const result = await pool.request()
       .input('id', sql.Int, req.user.id)
       .query(`
-        SELECT p.identificador, p.nombre, p.direccion, p.estado,
+        SELECT p.identificador, p.nombre, p.direccion, p.estado, p.foto,
                c.categoria, c.admitido,
                a.email
         FROM personas p
@@ -24,8 +24,8 @@ router.get('/me', authMiddleware, async (req, res) => {
       return res.status(404).json({ codigo: 404, mensaje: 'Usuario no encontrado' });
 
     const u = result.recordset[0];
+    const fotoBase64 = u.foto ? `data:image/jpeg;base64,${u.foto.toString('base64')}` : null;
 
-    // Traer medios de pago
     const mediosRes = await pool.request()
       .input('id', sql.Int, req.user.id)
       .query('SELECT * FROM mediosPago WHERE usuarioId = @id');
@@ -37,6 +37,7 @@ router.get('/me', authMiddleware, async (req, res) => {
       categoria: u.categoria,
       verificado: u.admitido === 'si',
       domicilio: u.direccion,
+      foto: fotoBase64,
       mediosPago: mediosRes.recordset
     });
 
@@ -86,26 +87,38 @@ router.get('/me/historial', authMiddleware, async (req, res) => {
     const result = await pool.request()
       .input('cli', sql.Int, req.user.id)
       .query(`
-        SELECT rds.subasta, rds.importe, rds.comision,
-               pr.descripcionCatalogo as nombreItem,
-               sub.fecha
-        FROM registroDeSubasta rds
-        INNER JOIN productos pr ON pr.identificador = rds.producto
-        INNER JOIN subastas sub ON sub.identificador = rds.subasta
-        WHERE rds.cliente = @cli
-        ORDER BY sub.fecha DESC
+        SELECT DISTINCT
+          c.subasta as subastaId,
+          ic.identificador as itemId,
+          pr.descripcionCatalogo as nombreItem,
+          ic.precioBase,
+          (SELECT TOP 1 p2.importe FROM pujos p2 
+           WHERE p2.item = ic.identificador AND p2.asistente = a.identificador 
+           ORDER BY p2.identificador DESC) as miUltimaPuja,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM pujos p3 
+            WHERE p3.item = ic.identificador AND p3.asistente = a.identificador AND p3.ganador = 'si'
+          ) THEN 'ganada' ELSE 'perdida' END as resultado
+        FROM pujos p
+        INNER JOIN asistentes a ON a.identificador = p.asistente
+        INNER JOIN itemsCatalogo ic ON ic.identificador = p.item
+        INNER JOIN catalogos c ON c.identificador = ic.catalogo
+        INNER JOIN productos pr ON pr.identificador = ic.producto
+        WHERE a.cliente = @cli AND ic.subastado = 'si'
+        ORDER BY c.subasta DESC, ic.identificador DESC
       `);
 
     res.json({
-      totalSubastas: result.recordset.length,
-      ganadas: result.recordset.length,
-      totalOfertado: result.recordset.reduce((acc, r) => acc + r.importe, 0),
+      totalSubastas: new Set(result.recordset.map(r => r.subastaId)).size,
+      ganadas: result.recordset.filter(r => r.resultado === 'ganada').length,
+      totalOfertado: result.recordset.reduce((acc, r) => acc + (r.miUltimaPuja || 0), 0),
       participaciones: result.recordset.map(r => ({
-        subastaId: r.subasta,
+        subastaId: r.subastaId,
+        itemId: r.itemId,
         itemNombre: r.nombreItem,
-        ultimaPuja: r.importe,
-        resultado: 'ganada',
-        fecha: r.fecha
+        ultimaPuja: r.miUltimaPuja,
+        resultado: r.resultado,
+        precioBase: r.precioBase
       }))
     });
 
@@ -166,6 +179,83 @@ router.post('/me/medios-pago', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
+  }
+});
+
+// GET /usuarios/me/medios-pago
+router.get('/me/medios-pago', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('id', sql.Int, req.user.id)
+      .query('SELECT * FROM mediosPago WHERE usuarioId = @id');
+
+    res.json(result.recordset);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// DELETE /usuarios/me/medios-pago/:id
+router.delete('/me/medios-pago/:id', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('id', sql.VarChar, req.params.id)
+      .input('usuarioId', sql.Int, req.user.id)
+      .query('DELETE FROM mediosPago WHERE id = @id AND usuarioId = @usuarioId');
+
+    if (result.rowsAffected[0] === 0)
+      return res.status(404).json({ codigo: 404, mensaje: 'Medio de pago no encontrado' });
+
+    res.json({ mensaje: 'Medio de pago eliminado' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// PUT /usuarios/me/direccion
+router.put('/me/direccion', authMiddleware, async (req, res) => {
+  const { direccion } = req.body;
+  if (!direccion)
+    return res.status(400).json({ codigo: 400, mensaje: 'Falta la dirección' });
+
+  try {
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.Int, req.user.id)
+      .input('direccion', sql.VarChar, direccion)
+      .query('UPDATE personas SET direccion = @direccion WHERE identificador = @id');
+
+    res.json({ mensaje: 'Dirección actualizada', direccion });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// PUT /usuarios/me/foto
+router.put('/me/foto', authMiddleware, async (req, res) => {
+  const { foto } = req.body;
+  if (!foto)
+    return res.status(400).json({ codigo: 400, mensaje: 'Falta la foto' });
+
+  try {
+    const pool = await getPool();
+    const base64Limpio = foto.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Limpio, 'base64');
+
+    await pool.request()
+      .input('id', sql.Int, req.user.id)
+      .input('foto', sql.VarBinary(sql.MAX), buffer)
+      .query('UPDATE personas SET foto = @foto WHERE identificador = @id');
+
+    res.json({ mensaje: 'Foto de perfil actualizada', foto });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
   }
 });
 
