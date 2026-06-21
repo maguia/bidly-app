@@ -272,6 +272,13 @@ router.post('/me/medios-pago', authMiddleware, async (req, res) => {
         VALUES (@id, @usuarioId, @tipo, @descripcion, @verificado, @moneda, @limite)
       `);
 
+    if (verificado === 0) {
+      crearNotificacion(req.user.id, 'medio_rechazado',
+        'Medio de pago rechazado',
+        `No pudimos verificar "${descripcion}". Probá agregando otro medio de pago.`,
+        { pantalla: 'Perfil' });
+    }
+    
     await evaluarCategoria(req.user.id);
     res.status(201).json({
       id: medioId,
@@ -359,6 +366,56 @@ router.put('/me/foto', authMiddleware, async (req, res) => {
       .query('UPDATE personas SET foto = @foto WHERE identificador = @id');
 
     res.json({ mensaje: 'Foto de perfil actualizada', foto });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+const { crearNotificacion } = require('../notificaciones');
+
+// GET /usuarios/me/notificaciones
+router.get('/me/notificaciones', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('id', sql.Int, req.user.id)
+      .query(`
+        SELECT identificador, tipo, titulo, mensaje, leida, fechaCreacion, datos
+        FROM notificaciones
+        WHERE usuarioId = @id
+        ORDER BY fechaCreacion DESC
+      `);
+
+    res.json({
+      notificaciones: result.recordset.map(n => ({
+        id: n.identificador,
+        tipo: n.tipo,
+        titulo: n.titulo,
+        mensaje: n.mensaje,
+        leida: n.leida,
+        fecha: n.fechaCreacion,
+        datos: n.datos ? JSON.parse(n.datos) : null
+      })),
+      noLeidas: result.recordset.filter(n => !n.leida).length
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// PUT /usuarios/me/notificaciones/:id/leida
+router.put('/me/notificaciones/:id/leida', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .input('usuarioId', sql.Int, req.user.id)
+      .query('UPDATE notificaciones SET leida = 1 WHERE identificador = @id AND usuarioId = @usuarioId');
+
+    res.json({ mensaje: 'Marcada como leída' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });

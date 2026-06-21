@@ -1,6 +1,7 @@
 const { getPool, sql } = require('./database');
 
 const ORDEN = ['comun', 'especial', 'plata', 'oro', 'platino'];
+const { crearNotificacion } = require('./notificaciones');
 
 async function evaluarCategoria(usuarioId) {
   try {
@@ -72,6 +73,11 @@ async function evaluarCategoria(usuarioId) {
         .query('UPDATE clientes SET categoria = @cat WHERE identificador = @id');
 
       console.log(`⬆️ Usuario ${usuarioId} subió de categoría: ${categoriaActual} → ${nuevaCategoria}`);
+
+      crearNotificacion(usuarioId, 'categoria',
+        '¡Subiste de categoría!',
+        `Ahora sos categoría ${nuevaCategoria.toUpperCase()}. Esto puede mejorar tus límites de puja.`,
+        { pantalla: 'Perfil' });
     }
 
     return nuevaCategoria;

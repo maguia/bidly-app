@@ -162,7 +162,7 @@ const getEstadoColor = (estado) => {
 
         <View style={styles.cardFooterDer}>
           {/* Botón streaming */}
-          {item.estado === 'en_vivo' && (
+          {item.estado === 'en_vivo' && user && (
             <TouchableOpacity
               style={styles.streamingBoton}
               onPress={(e) => {

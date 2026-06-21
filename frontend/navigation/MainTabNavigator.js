@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 // Importamos las pantallas (apuntando a src/screens)
 import HomeScreen from '../src/screens/HomeScreen';
+import ConsignacionesScreen from '../src/screens/ConsignacionesScreen';
 import PerfilScreen from '../src/screens/PerfilScreen';
 
 const Tab = createBottomTabNavigator();
@@ -13,11 +14,14 @@ export default function MainTabNavigator() {
         <Tab.Navigator
         screenOptions={({ route }) => ({
             headerShown: false, 
+            tabBarShowLabel: false,
             tabBarIcon: ({ focused, color, size }) => {
             let iconName;
 
             if (route.name === 'Inicio') {
                 iconName = focused ? 'home' : 'home-outline';
+            } else if (route.name === 'Consignar') {
+                iconName = 'add';
             } else if (route.name === 'Perfil') {
                 iconName = focused ? 'person-circle' : 'person-circle-outline';
             }
@@ -33,13 +37,11 @@ export default function MainTabNavigator() {
             paddingTop: 5,
             height: 60,
             },
-            tabBarLabelStyle: {
-            fontSize: 12,
-            fontWeight: '600',
-            }
+            
         })}
         >
         <Tab.Screen name="Inicio" component={HomeScreen} />
+        <Tab.Screen name="Consignar" component={ConsignacionesScreen} />
         <Tab.Screen name="Perfil" component={PerfilScreen} />
         </Tab.Navigator>
     );

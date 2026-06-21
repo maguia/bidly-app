@@ -402,7 +402,7 @@ export default function DetalleItemScreen({ route, navigation }) {
               onPress={() => {
                 setEstadoPuja(null);
                 setPujaActiva(null);
-                navigation.navigate('Factura', { factura, item, subasta });
+                navigation.navigate('Factura', { subastaId, itemId });
               }}
             >
               <Text style={styles.modalBotonPrimarioTexto}>Ver factura</Text>

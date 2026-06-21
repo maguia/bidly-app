@@ -12,6 +12,7 @@ app.use(express.json({ limit: '20mb' }));
 app.use('/auth', require('./src/routes/auth'));
 app.use('/subastas', require('./src/routes/subastas'));
 app.use('/usuarios', require('./src/routes/usuarios'));
+app.use('/consignaciones', require('./src/routes/consignaciones'));
 
 // Ruta de prueba para verificar que el servidor funciona
 app.get('/', (req, res) => {

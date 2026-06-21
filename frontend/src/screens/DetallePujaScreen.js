@@ -66,6 +66,15 @@ export default function DetallePujaScreen({ route, navigation }) {
           </View>
         </View>
 
+        {gane && (
+          <TouchableOpacity
+            style={styles.botonFactura}
+            onPress={() => navigation.navigate('Factura', { subastaId, itemId })}
+          >
+            <Text style={styles.botonFacturaTexto}>VER FACTURA</Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statVal}>{misPujas.length}</Text>
@@ -129,6 +138,8 @@ const styles = StyleSheet.create({
   label: { color: '#1A2E4A', fontSize: 12, marginBottom: 6 },
   badgeResultado: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 6, alignSelf: 'flex-start' },
   badgeResultadoTexto: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
+  botonFactura: { backgroundColor: '#E8593C', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginBottom: 20 },
+  botonFacturaTexto: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
   precioFinal: { color: '#C9973A', fontSize: 24, fontWeight: 'bold' },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, gap: 10 },
   statCard: { flex: 1, backgroundColor: '#1A2E4A', borderRadius: 10, paddingVertical: 16, alignItems: 'center' },

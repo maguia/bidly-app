@@ -3,7 +3,7 @@ const { getPool, sql } = require('../database');
 const { evaluarCategoria, usuarioEsValido  } = require('../categorias');
 const authMiddleware = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
-
+const { crearNotificacion } = require('../notificaciones');
 const CATEGORIAS = ['comun', 'especial', 'plata', 'oro', 'platino'];
 
 // ─── GET /subastas ──────────────────────────────────────
@@ -137,15 +137,13 @@ router.get('/:id/catalogo', async (req, res) => {
       .input('subId', sql.Int, req.params.id)
       .query(`
         SELECT ic.identificador as itemId,
-               pr.descripcionCatalogo as nombre,
-               ic.precioBase,
-               ic.comision,
-               ic.subastado,
-               ic.enSubasta,
-               (SELECT TOP 1 f.url 
-                FROM fotos f 
-                WHERE f.producto = ic.producto 
-                ORDER BY f.identificador ASC) as fotoPrincipal
+              pr.descripcionCatalogo as nombre,
+              ic.precioBase,
+              ic.comision,
+              ic.subastado,
+              ic.enSubasta,
+              (SELECT TOP 1 f.url FROM fotos f WHERE f.producto = ic.producto ORDER BY f.identificador ASC) as fotoUrl,
+              (SELECT TOP 1 f.foto FROM fotos f WHERE f.producto = ic.producto ORDER BY f.identificador ASC) as fotoBinaria
         FROM itemsCatalogo ic
         INNER JOIN catalogos c ON c.identificador = ic.catalogo
         INNER JOIN productos pr ON pr.identificador = ic.producto
@@ -160,7 +158,7 @@ router.get('/:id/catalogo', async (req, res) => {
       id: String(i.itemId),
       nombre: i.nombre,
       precioBase: i.precioBase,
-      fotoPrincipal: i.fotoPrincipal || null,
+      fotoPrincipal: i.fotoUrl || (i.fotoBinaria && i.fotoBinaria.length > 1 ? `data:image/jpeg;base64,${i.fotoBinaria.toString('base64')}` : null),
       comision: i.comision,
       estado: i.subastado === 'si' ? 'vendido'
             : (i.enSubasta || i.itemId === itemActualId) ? 'pujando'
@@ -220,14 +218,16 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
     const fotosRes = await pool.request()
       .input('itemId', sql.Int, req.params.itemId)
       .query(`
-        SELECT f.url 
+        SELECT f.url, f.foto
         FROM fotos f
         INNER JOIN itemsCatalogo ic ON ic.producto = f.producto
         WHERE ic.identificador = @itemId
         ORDER BY f.identificador ASC
       `);
 
-    const fotos = fotosRes.recordset.map(f => f.url).filter(u => u);
+    const fotos = fotosRes.recordset
+      .map(f => f.url || (f.foto && f.foto.length > 1 ? `data:image/jpeg;base64,${f.foto.toString('base64')}` : null))
+      .filter(u => u);
 
     const mejorOferta = pujos.length ? pujos[0].monto : item.precioBase;
     const rangoMin = mejorOferta + item.precioBase * 0.01;
@@ -645,10 +645,16 @@ router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, asy
       .input('cliente', sql.Int, clienteId)
       .input('importe', sql.Decimal(18,2), puja.importe)
       .input('comision', sql.Decimal(18,2), item.comision)
+      .input('medioPago', sql.VarChar, puja.medio_pago_id)
       .query(`
-        INSERT INTO registroDeSubasta (subasta, duenio, producto, cliente, importe, comision)
-        VALUES (@subasta, @duenio, @producto, @cliente, @importe, @comision)
+        INSERT INTO registroDeSubasta (subasta, duenio, producto, cliente, importe, comision, medioPagoId)
+        VALUES (@subasta, @duenio, @producto, @cliente, @importe, @comision, @medioPago)
       `);
+
+    crearNotificacion(item.duenio, 'venta',
+      '¡Vendiste un producto!',
+      `Tu producto se vendió por $${puja.importe.toLocaleString('es-AR')}.`,
+      { subastaId, itemId });
 
     if (fondosSuficientes) {
       await pool.request()
@@ -669,6 +675,10 @@ router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, asy
           INSERT INTO deudas (cliente, subasta, itemId, montoOriginal, multa, total, estado, fechaLimite)
           VALUES (@cliente, @subasta, @itemId, @montoOriginal, @multa, @total, 'pendiente', @fechaLimite)
         `);
+        crearNotificacion(clienteId, 'usuario_invalido',
+          'Te volviste usuario inválido',
+          'Tenés una deuda pendiente por fondos insuficientes. Saldala para volver a operar con normalidad.',
+          { pantalla: 'Deudas' });
     }
 
     const duenioExisteRes = await pool.request()
@@ -707,6 +717,130 @@ router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, asy
   } catch (err) {
     console.error('ERROR EN CONFIRMAR:', err);
     res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
+  }
+});
+
+// GET /subastas/:id/catalogo/:itemId/factura
+router.get('/:id/catalogo/:itemId/factura', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+
+    const itemRes = await pool.request()
+      .input('itemId', sql.Int, req.params.itemId)
+      .query('SELECT producto FROM itemsCatalogo WHERE identificador = @itemId');
+
+    if (!itemRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'Ítem no encontrado' });
+
+    const productoId = itemRes.recordset[0].producto;
+
+    const result = await pool.request()
+      .input('subasta', sql.Int, req.params.id)
+      .input('producto', sql.Int, productoId)
+      .input('cliente', sql.Int, req.user.id)
+      .query(`
+        SELECT rds.importe, rds.comision, rds.envioMetodo, rds.envioCosto,
+               pr.descripcionCatalogo as nombreItem, pr.descripcionCompleta,
+               s.identificador as subastaId, s.moneda,
+               per.nombre as martillero
+        FROM registroDeSubasta rds
+        INNER JOIN productos pr ON pr.identificador = rds.producto
+        INNER JOIN subastas s ON s.identificador = rds.subasta
+        LEFT JOIN subastadores sub ON sub.identificador = s.subastador
+        LEFT JOIN personas per ON per.identificador = sub.identificador
+        WHERE rds.subasta = @subasta AND rds.producto = @producto AND rds.cliente = @cliente
+      `);
+
+    if (!result.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'No se encontró una compra tuya para este ítem' });
+
+    const r = result.recordset[0];
+    res.json({
+      itemId: parseInt(req.params.itemId),
+      nombreItem: r.nombreItem,
+      descripcion: r.descripcionCompleta,
+      subastaId: r.subastaId,
+      martillero: r.martillero,
+      moneda: r.moneda,
+      importe: r.importe,
+      comision: r.comision,
+      envioMetodo: r.envioMetodo,
+      envioCosto: r.envioCosto,
+      total: r.importe + r.comision + (r.envioCosto || 0)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// POST /subastas/:id/catalogo/:itemId/envio
+router.post('/:id/catalogo/:itemId/envio', authMiddleware, async (req, res) => {
+  const { metodo } = req.body;
+  if (!metodo)
+    return res.status(400).json({ codigo: 400, mensaje: 'Falta el método de envío' });
+
+  try {
+    const pool = await getPool();
+
+    const itemRes = await pool.request()
+      .input('itemId', sql.Int, req.params.itemId)
+      .query('SELECT producto FROM itemsCatalogo WHERE identificador = @itemId');
+
+    if (!itemRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'Ítem no encontrado' });
+
+    const productoId = itemRes.recordset[0].producto;
+
+    const rdsRes = await pool.request()
+      .input('subasta', sql.Int, req.params.id)
+      .input('producto', sql.Int, productoId)
+      .input('cliente', sql.Int, req.user.id)
+      .query(`
+        SELECT identificador, importe, comision, envioMetodo, medioPagoId
+        FROM registroDeSubasta
+        WHERE subasta = @subasta AND producto = @producto AND cliente = @cliente
+      `);
+
+    if (!rdsRes.recordset.length)
+      return res.status(404).json({ codigo: 404, mensaje: 'No se encontró una compra tuya para este ítem' });
+
+    const rds = rdsRes.recordset[0];
+
+    if (rds.envioMetodo)
+      return res.status(409).json({ codigo: 409, mensaje: 'Ya elegiste cómo recibir este producto' });
+
+    let costo = 0;
+
+    if (metodo === 'envio') {
+      const totalFactura = rds.importe + rds.comision;
+      costo = Math.round(totalFactura * 0.05);
+
+      const medioRes = await pool.request()
+        .input('medioId', sql.VarChar, rds.medioPagoId)
+        .query('SELECT * FROM mediosPago WHERE id = @medioId');
+
+      const medio = medioRes.recordset[0];
+      if (!medio || medio.limiteDisponible < costo)
+        return res.status(402).json({ codigo: 402, mensaje: `Fondos insuficientes para el envío en tu medio de pago original. Disponible: $${(medio?.limiteDisponible || 0).toLocaleString('es-AR')}` });
+
+      await pool.request()
+        .input('medioId', sql.VarChar, rds.medioPagoId)
+        .input('costo', sql.Decimal(18,2), costo)
+        .query('UPDATE mediosPago SET limiteDisponible = limiteDisponible - @costo WHERE id = @medioId');
+    }
+
+    await pool.request()
+      .input('id', sql.Int, rds.identificador)
+      .input('metodo', sql.VarChar, metodo)
+      .input('costo', sql.Decimal(18,2), costo)
+      .query(`UPDATE registroDeSubasta SET envioMetodo = @metodo, envioCosto = @costo WHERE identificador = @id`);
+
+    res.json({ mensaje: 'Decisión de envío guardada', envioMetodo: metodo, envioCosto: costo });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
   }
 });
 

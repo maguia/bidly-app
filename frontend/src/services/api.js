@@ -67,6 +67,12 @@ export const subastasService = {
 
   confirmarPuja: (subastaId, itemId, pujaId) =>
     api.post(`/subastas/${subastaId}/catalogo/${itemId}/pujas/${pujaId}/confirmar`),
+
+  factura: (subastaId, itemId) => 
+    api.get(`/subastas/${subastaId}/catalogo/${itemId}/factura`),
+  
+  confirmarEnvio: (subastaId, itemId, metodo) => 
+    api.post(`/subastas/${subastaId}/catalogo/${itemId}/envio`, { metodo }),
 };
 
 // ─── Usuarios ───────────────────────────────────────────
@@ -100,4 +106,33 @@ export const usuarioService = {
   
   pagarDeuda: (medioId) => 
     api.post('/usuarios/me/deudas/pagar', { medioId }),
+
+  notificaciones: () => 
+    api.get('/usuarios/me/notificaciones'),
+  
+  marcarNotificacionLeida: (id) => 
+    api.put(`/usuarios/me/notificaciones/${id}/leida`),
+};
+
+export const consignacionesService = {
+  listar: () => 
+    api.get('/consignaciones'),
+
+  crear: (datos) => 
+    api.post('/consignaciones', datos),
+
+  detalle: (id) => 
+    api.get(`/consignaciones/${id}`),
+
+  confirmarEntrega: (id) => 
+    api.post(`/consignaciones/${id}/confirmar-entrega`),
+
+  inspeccion: (id) => 
+    api.get(`/consignaciones/${id}/inspeccion`),
+
+  decisionFinal: (id, aceptar, cvuCobroVenta) => 
+    api.post(`/consignaciones/${id}/decision-final`, { aceptar, cvuCobroVenta }),
+
+  seguro: (id) => 
+    api.get(`/consignaciones/${id}/seguro`),
 };
