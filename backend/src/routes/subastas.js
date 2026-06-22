@@ -91,8 +91,7 @@ router.get('/', async (req, res) => {
           // Extraer hora correctamente del objeto Date
           const horaDate = new Date(s.hora);
           const horaSubasta = `${String(horaDate.getUTCHours()).padStart(2,'0')}:${String(horaDate.getUTCMinutes()).padStart(2,'0')}:00`;
-          const horaActual = `${String(ahora.getHours()).padStart(2,'0')}:${String(ahora.getMinutes()).padStart(2,'0')}:00`;
-
+          const horaActual = `${String(ahora.getUTCHours()).padStart(2,'0')}:${String(ahora.getUTCMinutes()).padStart(2,'0')}:00`;
           console.log(`Subasta ${s.identificador} — horaSubasta: ${horaSubasta}, horaActual: ${horaActual}`);
 
           return horaActual >= horaSubasta ? 'en_vivo' : 'proximo';
