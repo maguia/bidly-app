@@ -1,3 +1,5 @@
+const { webcrypto } = require('crypto');
+globalThis.crypto = webcrypto;
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
