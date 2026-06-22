@@ -3,8 +3,9 @@ import {
   View, Text, FlatList, TouchableOpacity, useWindowDimensions , 
   StyleSheet, ActivityIndicator, Alert, TextInput, Image, Dimensions
 } from 'react-native';
-import { subastasService } from '../services/api';
+
 import { useAuth } from '../context/AuthContext';
+import { subastasService, usuarioService } from '../services/api';
 
 
 export default function CatalogoScreen({ route, navigation }) {
@@ -29,16 +30,16 @@ const [yaEntro, setYaEntro] = useState(false);
     cargarCatalogo();
     if (user) {
   const verificarLimite = async () => {
+    if (subasta?.estado !== 'en_vivo') return; // solo en subastas en vivo
     try {
-      const res = await usuarioService.perfil();
+      const res = await usuarioService.traerMediosPago();
       const monedaSubasta = subasta?.moneda || 'ARS';
-      const validos = (res.data.mediosPago || []).filter(m =>
+      const validos = (res.data || []).filter(m =>
         m.moneda === monedaSubasta && (m.verificado === 1 || m.verificado === true)
       );
       setMedios(validos);
       if (validos.length > 0) setMedioSeleccionado(validos[0]);
 
-      // Verificar si ya entró antes
       const asisRes = await subastasService.verificarEntrada(subasta.id);
       if (!asisRes.data.limiteElegido) setModalLimite(true);
       else setYaEntro(true);
