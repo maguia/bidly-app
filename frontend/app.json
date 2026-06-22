@@ -20,7 +20,11 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -35,6 +39,17 @@
           "cameraPermission": "Bidly necesita acceso a la cámara para sacar la foto de tu DNI."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5ebdbff5-85ca-4d71-a03f-3bc7b9cce72c"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/5ebdbff5-85ca-4d71-a03f-3bc7b9cce72c"
+    }
   }
 }
