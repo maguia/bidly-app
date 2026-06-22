@@ -623,6 +623,11 @@ router.post('/:id/catalogo/:itemId/pujas/:pujaId/confirmar', authMiddleware, asy
         .input('medioId', sql.VarChar, puja.medio_pago_id)
         .input('total', sql.Decimal(18,2), totalFactura)
         .query('UPDATE mediosPago SET limiteDisponible = limiteDisponible - @total WHERE id = @medioId');
+        // Descontar del limiteRestante del asistente
+        await pool.request()
+          .input('asisId', sql.Int, puja.asistente)
+          .input('total', sql.Decimal(18,2), totalFactura)
+          .query('UPDATE asistentes SET limiteRestante = limiteRestante - @total WHERE identificador = @asisId');
     } else {
       const multa = totalFactura * 0.10;
       await pool.request()

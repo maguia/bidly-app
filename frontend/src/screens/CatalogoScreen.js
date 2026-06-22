@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, useWindowDimensions , 
-  StyleSheet, ActivityIndicator, Alert, TextInput, Image, Dimensions
+  StyleSheet, ActivityIndicator, Alert, TextInput, Image, Dimensions, KeyboardAvoidingView, ScrollView, Platform
 } from 'react-native';
 
 import { useAuth } from '../context/AuthContext';
@@ -27,37 +27,42 @@ const [yaEntro, setYaEntro] = useState(false);
   const CARD_WIDTH = (width - 32) / 2;
 
   useEffect(() => {
-    cargarCatalogo();
-    if (user) {
-  const verificarLimite = async () => {
-    if (subasta?.estado !== 'en_vivo') return; // solo en subastas en vivo
-    try {
-      const res = await usuarioService.traerMediosPago();
-      const monedaSubasta = subasta?.moneda || 'ARS';
-      const validos = (res.data || []).filter(m =>
-        m.moneda === monedaSubasta && (m.verificado === 1 || m.verificado === true)
-      );
-      setMedios(validos);
-      if (validos.length > 0) setMedioSeleccionado(validos[0]);
+  cargarCatalogo();
 
-      const asisRes = await subastasService.verificarEntrada(subasta.id);
-      if (!asisRes.data.limiteElegido) setModalLimite(true);
-      else setYaEntro(true);
-    } catch {
-      setModalLimite(true);
-    }
-  };
-  verificarLimite();
-}
-    const intervalo = setInterval(async () => {
+  if (user) {
+    const verificarLimite = async () => {
+      console.log('estado subasta:', subasta?.estado);
+      if (subasta?.estado !== 'en_vivo') return;
       try {
-        const res = await subastasService.catalogo(subasta.id);
-        setItems(res.data);
-        setItemsFiltrados(res.data);
-      } catch {}
-    }, 5000);
-    return () => clearInterval(intervalo);
-  }, []);
+        const res = await usuarioService.traerMediosPago();
+        const monedaSubasta = subasta?.moneda || 'ARS';
+        const validos = (res.data || []).filter(m =>
+          m.moneda === monedaSubasta && (m.verificado === 1 || m.verificado === true)
+        );
+        setMedios(validos);
+        if (validos.length > 0) setMedioSeleccionado(validos[0]);
+
+        const asisRes = await subastasService.verificarEntrada(subasta.id);
+        console.log('asisRes.data:', JSON.stringify(asisRes.data));
+        if (!asisRes.data.limiteElegido) setModalLimite(true);
+        else setYaEntro(true);
+      } catch (error) {
+  console.log('Error verificando limite:', error?.response?.data || error?.message || error);
+  setModalLimite(true); // temporalmente para ver si llega acá
+}
+    };
+    verificarLimite(); // <-- esto faltaba
+  }
+
+  const intervalo = setInterval(async () => {
+    try {
+      const res = await subastasService.catalogo(subasta.id);
+      setItems(res.data);
+      setItemsFiltrados(res.data);
+    } catch {}
+  }, 5000);
+  return () => clearInterval(intervalo);
+}, []);
 
   useEffect(() => {
     if (busqueda.trim() === '') {
@@ -145,7 +150,7 @@ const [yaEntro, setYaEntro] = useState(false);
     </TouchableOpacity>
   );
 
-  if (modalLimite && !yaEntro) {
+if (modalLimite && !yaEntro) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -155,63 +160,68 @@ const [yaEntro, setYaEntro] = useState(false);
         <Text style={styles.headerTitulo}>Catálogo #{subasta.id}</Text>
       </View>
 
-      <View style={{ padding: 20, flex: 1, justifyContent: 'center' }}>
-        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A2E4A', marginBottom: 8 }}>
-          Antes de entrar
-        </Text>
-        <Text style={{ color: '#666', marginBottom: 20 }}>
-          Elegí con qué medio de pago vas a pujar y cuánto querés gastar como máximo en esta subasta.
-        </Text>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView contentContainerStyle={{ padding: 20, flexGrow: 1, justifyContent: 'center' }}>
+          <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A2E4A', marginBottom: 8 }}>
+            Antes de entrar
+          </Text>
+          <Text style={{ color: '#666', marginBottom: 20 }}>
+            Elegí con qué medio de pago vas a pujar y cuánto querés gastar como máximo en esta subasta.
+          </Text>
 
-        <Text style={{ fontWeight: '600', color: '#1A2E4A', marginBottom: 6 }}>Medio de pago</Text>
-        <TouchableOpacity
-          style={{ backgroundColor: '#1A2E4A', borderRadius: 8, padding: 14, flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}
-          onPress={() => setMostrarMedios(!mostrarMedios)}
-        >
-          <Text style={{ color: '#fff' }}>{medioSeleccionado ? medioSeleccionado.descripcion : 'Sin medios válidos'}</Text>
-          <Text style={{ color: '#C9973A' }}>▼</Text>
-        </TouchableOpacity>
-        {mostrarMedios && (
-          <View style={{ backgroundColor: '#1A2E4A', borderRadius: 8, marginBottom: 14 }}>
-            {medios.map(m => (
-              <TouchableOpacity key={m.id} style={{ padding: 14, borderBottomWidth: 1, borderBottomColor: '#2a3e5a' }}
-                onPress={() => { setMedioSeleccionado(m); setMostrarMedios(false); }}>
-                <Text style={{ color: '#fff' }}>{m.descripcion} — disponible: ${m.limiteDisponible?.toLocaleString('es-AR')}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
+          <Text style={{ fontWeight: '600', color: '#1A2E4A', marginBottom: 6 }}>Medio de pago</Text>
+          <TouchableOpacity
+            style={{ backgroundColor: '#1A2E4A', borderRadius: 8, padding: 14, flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}
+            onPress={() => setMostrarMedios(!mostrarMedios)}
+          >
+            <Text style={{ color: '#fff' }}>{medioSeleccionado ? medioSeleccionado.descripcion : 'Sin medios válidos'}</Text>
+            <Text style={{ color: '#C9973A' }}>▼</Text>
+          </TouchableOpacity>
+          {mostrarMedios && (
+            <View style={{ backgroundColor: '#1A2E4A', borderRadius: 8, marginBottom: 14 }}>
+              {medios.map(m => (
+                <TouchableOpacity key={m.id} style={{ padding: 14, borderBottomWidth: 1, borderBottomColor: '#2a3e5a' }}
+                  onPress={() => { setMedioSeleccionado(m); setMostrarMedios(false); }}>
+                  <Text style={{ color: '#fff' }}>{m.descripcion} — disponible: ${m.limiteDisponible?.toLocaleString('es-AR')}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
-        <Text style={{ fontWeight: '600', color: '#1A2E4A', marginBottom: 6 }}>Límite para esta subasta</Text>
-        <TextInput
-          style={{ backgroundColor: '#1A2E4A', borderRadius: 8, padding: 14, color: '#fff', marginBottom: 20 }}
-          placeholder={`Máximo: $${medioSeleccionado?.limiteDisponible?.toLocaleString('es-AR') || '0'}`}
-          placeholderTextColor="#aaa"
-          keyboardType="numeric"
-          value={limiteInput}
-          onChangeText={setLimiteInput}
-        />
+          <Text style={{ fontWeight: '600', color: '#1A2E4A', marginBottom: 6 }}>Límite para esta subasta</Text>
+          <TextInput
+            style={{ backgroundColor: '#1A2E4A', borderRadius: 8, padding: 14, color: '#fff', marginBottom: 20 }}
+            placeholder={`Máximo: $${medioSeleccionado?.limiteDisponible?.toLocaleString('es-AR') || '0'}`}
+            placeholderTextColor="#aaa"
+            keyboardType="numeric"
+            value={limiteInput}
+            onChangeText={setLimiteInput}
+          />
 
-        <TouchableOpacity
-          style={{ backgroundColor: '#E8593C', borderRadius: 8, padding: 16, alignItems: 'center' }}
-          onPress={async () => {
-            const limite = parseFloat(limiteInput);
-            if (!medioSeleccionado || isNaN(limite) || limite <= 0) {
-              Alert.alert('Error', 'Completá todos los campos');
-              return;
-            }
-            try {
-              await subastasService.entrarSubasta(subasta.id, medioSeleccionado.id, limite);
-              setModalLimite(false);
-              setYaEntro(true);
-            } catch (error) {
-              Alert.alert('Error', error.response?.data?.mensaje || 'No se pudo registrar');
-            }
-          }}
-        >
-          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>ENTRAR A LA SUBASTA</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={{ backgroundColor: '#E8593C', borderRadius: 8, padding: 16, alignItems: 'center' }}
+            onPress={async () => {
+              const limite = parseFloat(limiteInput);
+              if (!medioSeleccionado || isNaN(limite) || limite <= 0) {
+                Alert.alert('Error', 'Completá todos los campos');
+                return;
+              }
+              try {
+                await subastasService.entrarSubasta(subasta.id, medioSeleccionado.id, limite);
+                setModalLimite(false);
+                setYaEntro(true);
+              } catch (error) {
+                Alert.alert('Error', error.response?.data?.mensaje || 'No se pudo registrar');
+              }
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>ENTRAR A LA SUBASTA</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
