@@ -71,6 +71,11 @@ export const subastasService = {
   
   confirmarEnvio: (subastaId, itemId, metodo) => 
     api.post(`/subastas/${subastaId}/catalogo/${itemId}/envio`, { metodo }),
+  entrarSubasta: (subastaId, medioPagoId, limiteElegido) => 
+  api.post(`/subastas/${subastaId}/entrar`, { medioPagoId, limiteElegido }),
+
+  verificarEntrada: (subastaId) => api.get(`/subastas/${subastaId}/entrada`),
+
 };
 
 // ─── Usuarios ───────────────────────────────────────────

@@ -354,74 +354,69 @@ router.post('/:id/catalogo/:itemId/pujas', authMiddleware, async (req, res) => {
       }
     }
 
-    let asisRes = await pool.request()
-      .input('cli', sql.Int, req.user.id)
-      .input('sub', sql.Int, subastaId)
-      .query('SELECT identificador FROM asistentes WHERE cliente = @cli AND subasta = @sub');
+    const asisCheck = await pool.request()
+  .input('cli', sql.Int, req.user.id)
+  .input('sub', sql.Int, subastaId)
+  .query('SELECT * FROM asistentes WHERE cliente = @cli AND subasta = @sub');
 
-    let asisId;
-    if (asisRes.recordset.length) {
-      asisId = asisRes.recordset[0].identificador;
-    } else {
-      const maxPostor = await pool.request()
-        .input('sub', sql.Int, subastaId)
-        .query(`
-          SELECT ISNULL(MAX(numeroPostor), 0) + 1 as siguiente 
-          FROM asistentes 
-          WHERE subasta = @sub
-        `);
+if (!asisCheck.recordset.length || !asisCheck.recordset[0].limiteElegido)
+  return res.status(403).json({ codigo: 403, mensaje: 'Primero tenés que elegir tu límite para esta subasta' });
 
-      const insertAsis = await pool.request()
-        .input('nPostor', sql.Int, maxPostor.recordset[0].siguiente)
-        .input('cli', sql.Int, req.user.id)
-        .input('sub', sql.Int, subastaId)
-        .query(`
-          INSERT INTO asistentes (numeroPostor, cliente, subasta)
-          OUTPUT INSERTED.identificador
-          VALUES (@nPostor, @cli, @sub)
-        `);
+const asistente = asisCheck.recordset[0];
+const asisId = asistente.identificador;
 
-      asisId = insertAsis.recordset[0].identificador;
-    }
+const comprometidoRes = await pool.request()
+  .input('asisId', sql.Int, asisId)
+  .query(`
+    SELECT ISNULL(SUM(ultima.importe), 0) as total
+    FROM (
+      SELECT p.importe,
+             ROW_NUMBER() OVER (PARTITION BY p.item ORDER BY p.identificador DESC) as rn
+      FROM pujos p
+      WHERE p.asistente = @asisId
+      AND p.item IN (SELECT ic.identificador FROM itemsCatalogo ic WHERE ic.subastado = 'no')
+    ) ultima
+    WHERE ultima.rn = 1
+  `);
 
-    const medioRes = await pool.request()
-      .input('medioId', sql.VarChar, medioId)
-      .input('uid', sql.Int, req.user.id)
-      .query('SELECT * FROM mediosPago WHERE id = @medioId AND usuarioId = @uid');
+const comprometido = comprometidoRes.recordset[0].total;
+const disponible = (asistente.limiteRestante || 0) - comprometido;
 
-    if (!medioRes.recordset.length)
-      return res.status(403).json({ codigo: 403, mensaje: 'Medio de pago no válido' });
+if (monto > disponible) {
+  return res.status(402).json({
+    codigo: 402,
+    mensaje: `Fondos insuficientes. Disponible en esta subasta: $${disponible.toLocaleString('es-AR')}`
+  });
+}
 
-    const medio = medioRes.recordset[0];
+if (!asisCheck.recordset.length || !asisCheck.recordset[0].limiteElegido)
+  return res.status(403).json({ codigo: 403, mensaje: 'Primero tenés que elegir tu límite para esta subasta' });
 
-    const comprometidoRes = await pool.request()
-      .input('uid', sql.Int, req.user.id)
-      .input('medioId', sql.VarChar, medioId)
-      .query(`
-        SELECT ISNULL(SUM(ultima.importe), 0) as total
-        FROM (
-          SELECT p.importe,
-                ROW_NUMBER() OVER (PARTITION BY p.item ORDER BY p.identificador DESC) as rn
-          FROM pujos p
-          INNER JOIN asistentes a ON a.identificador = p.asistente
-          WHERE a.cliente = @uid
-          AND p.medio_pago_id = @medioId
-          AND p.item IN (
-            SELECT ic.identificador FROM itemsCatalogo ic WHERE ic.subastado = 'no'
-          )
-        ) ultima
-        WHERE ultima.rn = 1
-      `);
+const asistente = asisCheck.recordset[0];
 
-    const comprometido = comprometidoRes.recordset[0].total;
-    const disponible = (medio.limiteDisponible || 0) - comprometido;
+const comprometidoRes = await pool.request()
+  .input('asisId', sql.Int, asistente.identificador)
+  .query(`
+    SELECT ISNULL(SUM(ultima.importe), 0) as total
+    FROM (
+      SELECT p.importe,
+             ROW_NUMBER() OVER (PARTITION BY p.item ORDER BY p.identificador DESC) as rn
+      FROM pujos p
+      WHERE p.asistente = @asisId
+      AND p.item IN (SELECT ic.identificador FROM itemsCatalogo ic WHERE ic.subastado = 'no')
+    ) ultima
+    WHERE ultima.rn = 1
+  `);
 
-    if (monto > disponible) {
-      return res.status(402).json({
-        codigo: 402,
-        mensaje: `Fondos insuficientes. Disponible: $${disponible.toLocaleString('es-AR')}`
-      });
-    }
+const comprometido = comprometidoRes.recordset[0].total;
+const disponible = (asistente.limiteRestante || 0) - comprometido;
+
+if (monto > disponible) {
+  return res.status(402).json({
+    codigo: 402,
+    mensaje: `Fondos insuficientes. Disponible en esta subasta: $${disponible.toLocaleString('es-AR')}`
+  });
+}
 
     const pujaInsert = await pool.request()
       .input('asistente', sql.Int, asisId)
@@ -837,6 +832,82 @@ router.post('/:id/catalogo/:itemId/envio', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+// POST /subastas/:id/entrar
+router.post('/:id/entrar', authMiddleware, async (req, res) => {
+  const { medioPagoId, limiteElegido } = req.body;
+  if (!medioPagoId || !limiteElegido)
+    return res.status(400).json({ codigo: 400, mensaje: 'Faltan datos' });
+
+  try {
+    const pool = await getPool();
+
+    // Verificar que el medio existe y tiene fondos suficientes
+    const medioRes = await pool.request()
+      .input('medioId', sql.VarChar, medioPagoId)
+      .input('uid', sql.Int, req.user.id)
+      .query('SELECT * FROM mediosPago WHERE id = @medioId AND usuarioId = @uid');
+
+    if (!medioRes.recordset.length)
+      return res.status(403).json({ codigo: 403, mensaje: 'Medio de pago no válido' });
+
+    const medio = medioRes.recordset[0];
+    if (limiteElegido > medio.limiteDisponible)
+      return res.status(402).json({ codigo: 402, mensaje: `No podés elegir un límite mayor a tu disponible ($${medio.limiteDisponible.toLocaleString('es-AR')})` });
+
+    // Buscar o crear el asistente
+    let asisRes = await pool.request()
+      .input('cli', sql.Int, req.user.id)
+      .input('sub', sql.Int, req.params.id)
+      .query('SELECT identificador FROM asistentes WHERE cliente = @cli AND subasta = @sub');
+
+    if (asisRes.recordset.length) {
+      // Ya existe, actualizar
+      await pool.request()
+        .input('id', sql.Int, asisRes.recordset[0].identificador)
+        .input('medioId', sql.VarChar, medioPagoId)
+        .input('limite', sql.Decimal(18,2), limiteElegido)
+        .query('UPDATE asistentes SET medioPagoId = @medioId, limiteElegido = @limite, limiteRestante = @limite WHERE identificador = @id');
+    } else {
+      const maxPostor = await pool.request()
+        .input('sub', sql.Int, req.params.id)
+        .query('SELECT ISNULL(MAX(numeroPostor), 0) + 1 as siguiente FROM asistentes WHERE subasta = @sub');
+
+      await pool.request()
+        .input('nPostor', sql.Int, maxPostor.recordset[0].siguiente)
+        .input('cli', sql.Int, req.user.id)
+        .input('sub', sql.Int, req.params.id)
+        .input('medioId', sql.VarChar, medioPagoId)
+        .input('limite', sql.Decimal(18,2), limiteElegido)
+        .query(`
+          INSERT INTO asistentes (numeroPostor, cliente, subasta, medioPagoId, limiteElegido, limiteRestante)
+          VALUES (@nPostor, @cli, @sub, @medioId, @limite, @limite)
+        `);
+    }
+
+    res.json({ mensaje: 'Límite registrado correctamente' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno del servidor' });
+  }
+});
+
+router.get('/:id/entrada', authMiddleware, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('cli', sql.Int, req.user.id)
+      .input('sub', sql.Int, req.params.id)
+      .query('SELECT medioPagoId, limiteElegido, limiteRestante FROM asistentes WHERE cliente = @cli AND subasta = @sub');
+
+    if (!result.recordset.length)
+      return res.json({ limiteElegido: null });
+
+    res.json(result.recordset[0]);
+  } catch (err) {
+    res.status(500).json({ codigo: 500, mensaje: 'Error interno' });
   }
 });
 
