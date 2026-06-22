@@ -1,13 +1,11 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+
 
 
 // IP de tu computadora donde corre el backend
 // 10.0.2.2 es la IP especial para conectar el emulador Android a localhost
-const BASE_URL = Platform.OS === 'web' 
-  ? 'http://localhost:3000'          // web
-  : 'http://192.168.1.35:3000';       // celular físico — poné tu IP real
+const BASE_URL = 'http://20.220.209.19';   // celular físico — poné tu IP real
 
 
 const api = axios.create({ baseURL: BASE_URL });

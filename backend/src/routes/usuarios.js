@@ -278,7 +278,7 @@ router.post('/me/medios-pago', authMiddleware, async (req, res) => {
         `No pudimos verificar "${descripcion}". Probá agregando otro medio de pago.`,
         { pantalla: 'Perfil' });
     }
-    
+
     await evaluarCategoria(req.user.id);
     res.status(201).json({
       id: medioId,
@@ -314,6 +314,32 @@ router.get('/me/medios-pago', authMiddleware, async (req, res) => {
 router.delete('/me/medios-pago/:id', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool();
+
+    // Verificar si hay consignaciones activas usando este medio
+    const consigRes = await pool.request()
+      .input('id', sql.VarChar, req.params.id)
+      .query(`
+        SELECT TOP 1 identificador FROM consignaciones 
+        WHERE medioPagoCobroId = @id 
+        AND estadoProceso NOT IN ('finalizada', 'rechazada_empresa', 'rechazada_inspeccion', 'rechazada_final', 'rechazada_cliente')
+      `);
+
+    if (consigRes.recordset.length) {
+      return res.status(409).json({ 
+        codigo: 409, 
+        mensaje: 'No podés eliminar este medio de pago porque está siendo usado en una solicitud de consignación activa' 
+      });
+    }
+
+    // Limpiar referencia en consignaciones ya cerradas
+    await pool.request()
+      .input('id', sql.VarChar, req.params.id)
+      .query(`
+        UPDATE consignaciones SET medioPagoCobroId = NULL 
+        WHERE medioPagoCobroId = @id 
+        AND estadoProceso IN ('finalizada', 'rechazada_empresa', 'rechazada_inspeccion', 'rechazada_final', 'rechazada_cliente')
+      `);
+
     const result = await pool.request()
       .input('id', sql.VarChar, req.params.id)
       .input('usuarioId', sql.Int, req.user.id)
