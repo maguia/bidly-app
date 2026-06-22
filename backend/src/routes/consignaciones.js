@@ -85,12 +85,11 @@ router.post('/', authMiddleware, async (req, res) => {
     const productoId = productoInsert.recordset[0].identificador;
 
     for (let i = 0; i < fotos.length; i++) {
-      const url = await subirFotoBase64(fotos[i], `producto-${productoId}-${i}`);
-      await pool.request()
+    const url = await subirFotoBase64(fotos[i], `producto-${productoId}-${i}`);
+    await pool.request()
         .input('producto', sql.Int, productoId)
-        .input('foto', sql.VarBinary, Buffer.from([0]))
         .input('url', sql.VarChar, url)
-        .query('INSERT INTO fotos (producto, foto, url) VALUES (@producto, @foto, @url)');
+        .query('INSERT INTO fotos (producto, foto) VALUES (@producto, @url)');
     }
 
     const consigInsert = await pool.request()

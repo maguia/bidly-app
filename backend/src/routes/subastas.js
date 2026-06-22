@@ -142,8 +142,7 @@ router.get('/:id/catalogo', async (req, res) => {
               ic.comision,
               ic.subastado,
               ic.enSubasta,
-              (SELECT TOP 1 f.url FROM fotos f WHERE f.producto = ic.producto ORDER BY f.identificador ASC) as fotoUrl,
-              (SELECT TOP 1 f.foto FROM fotos f WHERE f.producto = ic.producto ORDER BY f.identificador ASC) as fotoBinaria
+              (SELECT TOP 1 f.foto FROM fotos f WHERE f.producto = ic.producto ORDER BY f.identificador ASC) as foto
         FROM itemsCatalogo ic
         INNER JOIN catalogos c ON c.identificador = ic.catalogo
         INNER JOIN productos pr ON pr.identificador = ic.producto
@@ -158,7 +157,7 @@ router.get('/:id/catalogo', async (req, res) => {
       id: String(i.itemId),
       nombre: i.nombre,
       precioBase: i.precioBase,
-      fotoPrincipal: i.fotoUrl || (i.fotoBinaria && i.fotoBinaria.length > 1 ? `data:image/jpeg;base64,${i.fotoBinaria.toString('base64')}` : null),
+      fotoPrincipal: i.foto || null,
       comision: i.comision,
       estado: i.subastado === 'si' ? 'vendido'
             : (i.enSubasta || i.itemId === itemActualId) ? 'pujando'
@@ -218,16 +217,14 @@ router.get('/:id/catalogo/:itemId', async (req, res) => {
     const fotosRes = await pool.request()
       .input('itemId', sql.Int, req.params.itemId)
       .query(`
-        SELECT f.url, f.foto
+        SELECT f.foto
         FROM fotos f
         INNER JOIN itemsCatalogo ic ON ic.producto = f.producto
         WHERE ic.identificador = @itemId
         ORDER BY f.identificador ASC
       `);
 
-    const fotos = fotosRes.recordset
-      .map(f => f.url || (f.foto && f.foto.length > 1 ? `data:image/jpeg;base64,${f.foto.toString('base64')}` : null))
-      .filter(u => u);
+    const fotos = fotosRes.recordset.map(f => f.foto).filter(u => u);
 
     const mejorOferta = pujos.length ? pujos[0].monto : item.precioBase;
     const rangoMin = mejorOferta + item.precioBase * 0.01;

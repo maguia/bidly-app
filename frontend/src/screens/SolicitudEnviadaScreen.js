@@ -10,7 +10,7 @@ export default function SolicitudEnviadaScreen({ route, navigation }) {
 
   const handleInvitado = async () => {
     await logout();
-    navigation.replace('Home');
+    navigation.replace('MainTabs');
   };
 
   return (
