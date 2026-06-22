@@ -389,35 +389,6 @@ if (monto > disponible) {
   });
 }
 
-if (!asisCheck.recordset.length || !asisCheck.recordset[0].limiteElegido)
-  return res.status(403).json({ codigo: 403, mensaje: 'Primero tenés que elegir tu límite para esta subasta' });
-
-const asistente = asisCheck.recordset[0];
-
-const comprometidoRes = await pool.request()
-  .input('asisId', sql.Int, asistente.identificador)
-  .query(`
-    SELECT ISNULL(SUM(ultima.importe), 0) as total
-    FROM (
-      SELECT p.importe,
-             ROW_NUMBER() OVER (PARTITION BY p.item ORDER BY p.identificador DESC) as rn
-      FROM pujos p
-      WHERE p.asistente = @asisId
-      AND p.item IN (SELECT ic.identificador FROM itemsCatalogo ic WHERE ic.subastado = 'no')
-    ) ultima
-    WHERE ultima.rn = 1
-  `);
-
-const comprometido = comprometidoRes.recordset[0].total;
-const disponible = (asistente.limiteRestante || 0) - comprometido;
-
-if (monto > disponible) {
-  return res.status(402).json({
-    codigo: 402,
-    mensaje: `Fondos insuficientes. Disponible en esta subasta: $${disponible.toLocaleString('es-AR')}`
-  });
-}
-
     const pujaInsert = await pool.request()
       .input('asistente', sql.Int, asisId)
       .input('item', sql.Int, req.params.itemId)
