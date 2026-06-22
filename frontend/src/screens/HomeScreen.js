@@ -3,10 +3,12 @@ import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, TextInput, Platform 
 } from 'react-native';
-import { subastasService } from '../services/api';
+import { subastasService, formatearHoraArg } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 //import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
+
+
 
 
 // Solo importar en móvil
@@ -121,8 +123,7 @@ const getEstadoColor = (estado) => {
       <View style={styles.cardInfoRow}>
         <Ionicons name="time-outline" size={13} color="#C9973A" style={styles.cardInfoIcon} />
         <Text style={styles.cardInfoTexto}>
-          {new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-AR')} — {item.hora?.slice(11,16) || ''}
-        </Text>
+          {new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-AR')} — {formatearHoraArg(item.hora)}        </Text>
       </View>
       <View style={styles.cardInfoRow}>
         <Ionicons name="pricetag-outline" size={13} color="#C9973A" style={styles.cardInfoIcon} />

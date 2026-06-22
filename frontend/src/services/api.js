@@ -133,4 +133,13 @@ export const consignacionesService = {
 
   seguro: (id) => 
     api.get(`/consignaciones/${id}/seguro`),
+
+  
+};
+
+export const formatearHoraArg = (horaString) => {
+  if (!horaString) return '';
+  const d = new Date(horaString);
+  d.setUTCHours(d.getUTCHours() - 3);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 };

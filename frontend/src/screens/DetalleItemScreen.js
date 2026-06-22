@@ -5,7 +5,7 @@ import {
   FlatList, Dimensions, Modal, useWindowDimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { subastasService, usuarioService } from '../services/api';
+import { subastasService, usuarioService, formatearHoraArg } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function DetalleItemScreen({ route, navigation }) {
@@ -273,7 +273,7 @@ export default function DetalleItemScreen({ route, navigation }) {
               {!estaEnVivo && (
                 <View style={styles.proximaBox}>
                   <Text style={styles.proximaTexto}>
-                    Subasta comienza {new Date(subasta?.fecha + 'T00:00:00').toLocaleDateString('es-AR')} · {subasta?.hora?.slice(11,16)} hs
+                    Subasta comienza {new Date(subasta?.fecha + 'T00:00:00').toLocaleDateString('es-AR')} · {formatearHoraArg(subasta?.hora)} hs
                   </Text>
                 </View>
               )}

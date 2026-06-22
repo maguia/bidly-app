@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { consignacionesService } from '../services/api';
+import { consignacionesService, formatearHoraArg  } from '../services/api';
 
 export default function InspeccionConsignacionScreen({ route, navigation }) {
   const { consignacionId } = route.params;
@@ -120,7 +120,7 @@ export default function InspeccionConsignacionScreen({ route, navigation }) {
             </View>
             <View style={styles.filaDato}>
               <Text style={styles.datoLabel}>Fecha</Text>
-              <Text style={styles.datoValor}>{fechaFormateada} - {insp.subastaAsignada?.hora?.slice(11,16)}hs</Text>
+              <Text style={styles.datoValor}>{fechaFormateada} - {formatearHoraArg(insp.subastaAsignada?.hora)}hs</Text>
             </View>
             <View style={styles.filaDato}>
               <Text style={styles.datoLabel}>Valor Base Ofrecido</Text>
